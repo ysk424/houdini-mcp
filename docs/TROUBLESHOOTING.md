@@ -2,7 +2,7 @@
 
 ## Connection Problems
 
-### "Could not connect to Houdini on port 9877"
+### "Could not connect to Houdini on port 9876"
 
 This means the MCP bridge can't reach the plugin running inside Houdini. Work through these checks in order:
 
@@ -41,14 +41,14 @@ start_server()
 
 Or use the **Toggle MCP Server** shelf button.
 
-**3. Is something else using port 9877?**
+**3. Is something else using port 9876?**
 
 ```bash
 # Linux/macOS
-lsof -i :9877
+lsof -i :9876
 
 # Windows
-netstat -ano | findstr :9877
+netstat -ano | findstr :9876
 ```
 
 If another process has the port, either kill it or use a custom port:
@@ -73,7 +73,7 @@ Unlikely on most systems, but some corporate/VPN setups block loopback connectio
 
 ```bash
 # Should connect instantly if the server is listening
-python -c "import socket; s=socket.socket(); s.connect(('localhost', 9877)); print('OK'); s.close()"
+python -c "import socket; s=socket.socket(); s.connect(('localhost', 9876)); print('OK'); s.close()"
 ```
 
 ### Connection drops mid-session
@@ -115,7 +115,7 @@ The plugin auto-starts via `houdinimcp/__init__.py` which calls `initialize_plug
 
 Check the Houdini console for `Failed to start server:` messages. Usually means:
 
-- Port 9877 is already in use (another Houdini instance, or a previous server didn't shut down cleanly)
+- Port 9876 is already in use (another Houdini instance, or a previous server didn't shut down cleanly)
 - Socket permissions issue (extremely rare on modern systems)
 
 Fix: restart Houdini, or change the port via `HOUDINIMCP_PORT` environment variable.
@@ -307,13 +307,13 @@ PDG cook is non-blocking. After calling `pdg_cook`, poll `pdg_status` after a de
 
 ## Multiple Houdini Instances
 
-Only one process can bind to port 9877 at a time. If you're running multiple Houdini instances, only the first one will successfully start the MCP server.
+Only one process can bind to port 9876 at a time. If you're running multiple Houdini instances, only the first one will successfully start the MCP server.
 
 To connect to a specific instance, use different ports:
 
 ```bash
 # Instance 1 (default)
-export HOUDINIMCP_PORT=9877
+export HOUDINIMCP_PORT=9876
 
 # Instance 2
 export HOUDINIMCP_PORT=9877

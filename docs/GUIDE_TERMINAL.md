@@ -63,7 +63,7 @@ The terminal is launched with these environment variables set:
 | Variable | Value |
 |----------|-------|
 | `TERM` | `xterm-256color` |
-| `HOUDINIMCP_PORT` | The MCP server port (default 9877) |
+| `HOUDINIMCP_PORT` | The MCP server port (default 9876) |
 | `HIP` | Path to the current .hip file |
 | `HOUDINI_VERSION` | Houdini version string |
 

@@ -4,7 +4,7 @@ houdini_mcp_server.py
 
 This is the "bridge" or "driver" script that Claude will run via `uv run`.
 It uses the MCP library (fastmcp) to communicate with Claude over stdio,
-and relays each command to the local Houdini plugin on port 9877.
+and relays each command to the local Houdini plugin on port 9876.
 """
 import sys
 import os
@@ -31,7 +31,7 @@ from contextlib import asynccontextmanager
 from mcp.server.fastmcp import FastMCP, Context
 import asyncio
 
-HOUDINI_PORT = int(os.getenv("HOUDINIMCP_PORT", 9877))
+HOUDINI_PORT = int(os.getenv("HOUDINIMCP_PORT", 9876))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HoudiniMCP_StdioServer")

@@ -182,7 +182,7 @@ class TestCommandDispatcher:
     def setup_method(self):
         self.server = HoudiniMCPServer.__new__(HoudiniMCPServer)
         self.server.host = "localhost"
-        self.server.port = 9876
+        self.server.port = 9877
         self.server.running = False
         self.server.socket = None
         self.server.client = None
@@ -246,7 +246,7 @@ class TestCommandDispatcher:
         assert "host" in result
         assert "port" in result
         assert result["alive"] is True
-        assert result["port"] == 9876
+        assert result["port"] == 9877
 
     def test_dangerous_code_blocked(self):
         """execute_code should reject dangerous patterns by default."""

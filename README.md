@@ -156,7 +156,7 @@ This enables the `search_docs` and `get_doc` tools — they work offline without
 HoudiniMCP exposes 166 tools, 8 resources, and 6 prompts over MCP, organized by domain: scene management, node operations, scene context, parameters, code execution, materials, animation, VEX, geometry, rendering, viewport, DOPs, PDG/TOPs, USD/Solaris, COPs, CHOPs, takes, cache, HDA management, batch operations, workflow templates, events, and documentation search. The bridge runs as a separate process (`houdini_mcp_server.py`) and talks to the Houdini plugin over TCP.
 
 ```
-Claude (MCP stdio) → houdini_mcp_server.py (Bridge) → TCP:9876 → server.py (Houdini Plugin) → hou API
+Claude (MCP stdio) → houdini_mcp_server.py (Bridge) → TCP:9877 → server.py (Houdini Plugin) → hou API
                    ↘ houdini_rag.py (BM25 search — docs + patterns, local-only)
                    ↖ scripts/ingest_hips.py (pattern extraction from .hip files)
 ```
@@ -426,7 +426,7 @@ Claude (MCP stdio) → houdini_mcp_server.py (Bridge) → TCP:9876 → server.py
 
 ## Shelf Tools
 
-The installer adds a **HoudiniMCP** shelf with a **Toggle MCP Server** button that starts or stops the TCP server on localhost:9876.
+The installer adds a **HoudiniMCP** shelf with a **Toggle MCP Server** button that starts or stops the TCP server on localhost:9877.
 
 <details>
 <summary><strong>Ingest Pipeline</strong></summary>

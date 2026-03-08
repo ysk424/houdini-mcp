@@ -86,13 +86,13 @@ python scripts/install.py
 ## Architecture
 
 ```
-Claude (MCP stdio) → houdini_mcp_server.py (Bridge) → TCP:9876 → server.py (Plugin) → hou API
+Claude (MCP stdio) → houdini_mcp_server.py (Bridge) → TCP:9877 → server.py (Plugin) → hou API
                    ↘ houdini_rag.py (docs search, local-only)
 ```
 
 ### Layer 1: Houdini Plugin (`src/houdinimcp/`)
 - Runs **inside** the Houdini process. Uses the `hou` module (Houdini Python API).
-- `HoudiniMCPServer` in `server.py` listens on `localhost:9876` with a non-blocking TCP socket polled via Qt's `QTimer`.
+- `HoudiniMCPServer` in `server.py` listens on `localhost:9877` with a non-blocking TCP socket polled via Qt's `QTimer`.
 - `execute_command()` dispatches JSON commands to handler functions in `handlers/`.
 - Mutating commands are wrapped in `hou.undos.group()` for undo support.
 - `EventCollector` registers Houdini callbacks (hipFile, node, playbar) and buffers events with deduplication.

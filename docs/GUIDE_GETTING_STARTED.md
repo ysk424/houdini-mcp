@@ -69,7 +69,7 @@ Go to **Settings > MCP > Add new MCP server** and use the same configuration.
 
 ## Step 5: Verify the Connection
 
-1. Start Houdini (the MCP server plugin should auto-start on port 9876)
+1. Start Houdini (the MCP server plugin should auto-start on port 9877)
 2. In Claude, ask: "Ping Houdini — is it connected?"
 3. Claude should respond with server status info
 

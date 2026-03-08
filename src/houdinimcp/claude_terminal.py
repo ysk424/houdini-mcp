@@ -65,7 +65,7 @@ def _build_houdini_env():
     """Build environment dict with Houdini context for the terminal."""
     env = os.environ.copy()
     env["TERM"] = "xterm-256color"
-    port = os.environ.get("HOUDINIMCP_PORT", "9876")
+    port = os.environ.get("HOUDINIMCP_PORT", "9877")
     env["HOUDINIMCP_PORT"] = port
     try:
         import hou
@@ -81,7 +81,7 @@ def _build_houdini_env():
 def _build_system_prompt():
     """Build an append-system-prompt string with current Houdini state."""
     lines = []
-    port = os.environ.get("HOUDINIMCP_PORT", "9876")
+    port = os.environ.get("HOUDINIMCP_PORT", "9877")
     lines.append(f"Connected to a live Houdini session via MCP (port {port}).")
     try:
         import hou

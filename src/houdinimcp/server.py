@@ -92,7 +92,7 @@ EXTENSION_NAME = "Houdini MCP"
 EXTENSION_VERSION = (0, 2)
 EXTENSION_DESCRIPTION = "Connect Houdini to Claude via MCP"
 
-DEFAULT_PORT = int(os.environ.get("HOUDINIMCP_PORT", 9876))
+DEFAULT_PORT = int(os.environ.get("HOUDINIMCP_PORT", 9877))
 
 
 class HoudiniMCPServer:

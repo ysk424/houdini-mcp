@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from houdinimcp.handlers.nodes import (
     copy_node, move_node, rename_node, list_children,
     find_nodes, list_node_types, connect_nodes_batch, reorder_inputs,
+    get_node_info,
 )
 
 
@@ -156,3 +157,101 @@ class TestNodeExpanded:
     def test_list_node_types(self):
         result = list_node_types()
         assert result["count"] == 0
+
+
+class _FakeColor:
+    """Mirrors real hou.Color: NOT iterable. RGB lives on .rgb()."""
+    def __init__(self, r, g, b):
+        self._rgb = (r, g, b)
+    def rgb(self):
+        return self._rgb
+
+
+class _FakeTemplate:
+    def __init__(self, label, type_name="String"):
+        self._label = label
+        self._type = type_name
+    def label(self):
+        return self._label
+    def type(self):
+        return types.SimpleNamespace(name=lambda: self._type)
+
+
+class _FakeParm:
+    """Mirrors real hou.Parm: NO .label() method."""
+    def __init__(self, name, value, label):
+        self._name = name
+        self._value = value
+        self._template = _FakeTemplate(label)
+    def name(self):
+        return self._name
+    def eval(self):
+        return self._value
+    def rawValue(self):
+        return str(self._value)
+    def parmTemplate(self):
+        return self._template
+
+
+class _FakeNodeForInfo:
+    def __init__(self, parms, color):
+        self._parms = parms
+        self._color = color
+    def name(self):
+        return "node1"
+    def path(self):
+        return "/obj/node1"
+    def type(self):
+        return types.SimpleNamespace(
+            name=lambda: "geo",
+            category=lambda: types.SimpleNamespace(name=lambda: "Object"),
+        )
+    def position(self):
+        return (0.0, 0.0)
+    def color(self):
+        return self._color
+    def isBypassed(self):
+        return False
+    def parms(self):
+        return self._parms
+    def inputs(self):
+        return []
+    def outputConnections(self):
+        return []
+
+
+class TestGetNodeInfo:
+    """Regression tests for get_node_info covering B1 (parm.label) and B2 (Color)."""
+
+    def setup_method(self):
+        self._orig_node = sys.modules["hou"].node
+
+    def teardown_method(self):
+        sys.modules["hou"].node = self._orig_node
+
+    def test_color_serialised_via_rgb(self):
+        """B2 regression: hou.Color is not iterable. list(node.color()) used to raise.
+        Must use .rgb() to get an [r, g, b] list.
+        """
+        node = _FakeNodeForInfo([], _FakeColor(0.5, 0.6, 0.7))
+        sys.modules["hou"].node = lambda p: node if p == "/obj/node1" else None
+        result = get_node_info("/obj/node1")
+        assert result["color"] == [0.5, 0.6, 0.7]
+
+    def test_color_none_when_node_color_falsy(self):
+        node = _FakeNodeForInfo([], None)
+        sys.modules["hou"].node = lambda p: node if p == "/obj/node1" else None
+        result = get_node_info("/obj/node1")
+        assert result["color"] is None
+
+    def test_parameter_label_via_template(self):
+        """B1 regression at the get_node_info call site: parm.label() does not
+        exist on real hou.Parm. Label must come from parmTemplate().label().
+        """
+        parms = [_FakeParm("attrib", "P", "Attribute")]
+        node = _FakeNodeForInfo(parms, _FakeColor(0, 0, 0))
+        sys.modules["hou"].node = lambda p: node if p == "/obj/node1" else None
+        result = get_node_info("/obj/node1")
+        assert len(result["parameters"]) == 1
+        assert result["parameters"][0]["name"] == "attrib"
+        assert result["parameters"][0]["label"] == "Attribute"

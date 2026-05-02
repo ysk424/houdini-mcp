@@ -30,7 +30,6 @@ Hard-won lessons from real production use of the Houdini MCP. Organized by conte
   - [hbatch render Only Works with ROPs, Not SOPs](#hbatch-render-only-works-with-rops-not-sops)
 - [General MCP Usage](#general-mcp-usage)
   - [Connection Discipline](#connection-discipline)
-  - [Node Inspection Caveats](#node-inspection-caveats)
   - [HDA Script Sync](#hda-script-sync)
   - [Diagnostics Workflow](#diagnostics-workflow)
 
@@ -425,14 +424,6 @@ node.parm("execute").pressButton()
 2. **Never rapid-fire commands** — the plugin needs time to reset between connections.
 3. **If you get a connection error, stop** — don't retry in a loop. The plugin likely needs a restart.
 4. **Use `batch` for bulk operations** — executes atomically in a single undo group.
-
-### Node Inspection Caveats
-
-> Houdini 21.0.631
-
-**`get_node_info` can crash on certain node types.** We encountered a `'Color' object is not iterable` error when calling it on nodes with non-standard color configurations.
-
-**Workaround:** Use `execute_houdini_code` to inspect nodes manually when `get_node_info` fails. Iterate `node.parms()`, `node.inputs()`, `node.outputs()` directly.
 
 ### HDA Script Sync
 

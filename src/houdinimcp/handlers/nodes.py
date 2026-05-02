@@ -1,6 +1,8 @@
 """Node CRUD, wiring, flags, layout, and material handlers."""
 import hou
 
+from ._parm_utils import parm_label
+
 
 def create_node(node_type, parent_path="/obj", name=None, position=None, parameters=None):
     """Creates a new node in the specified parent."""
@@ -79,7 +81,7 @@ def get_node_info(path):
         "type": node.type().name(),
         "category": node.type().category().name(),
         "position": [node.position()[0], node.position()[1]],
-        "color": list(node.color()) if node.color() else None,
+        "color": list(node.color().rgb()) if node.color() else None,
         "is_bypassed": node.isBypassed(),
         "is_displayed": getattr(node, "isDisplayFlagSet", lambda: None)(),
         "is_rendered": getattr(node, "isRenderFlagSet", lambda: None)(),
@@ -93,7 +95,7 @@ def get_node_info(path):
             break
         node_info["parameters"].append({
             "name": parm.name(),
-            "label": parm.label(),
+            "label": parm_label(parm),
             "value": str(parm.eval()),
             "raw_value": parm.rawValue(),
             "type": parm.parmTemplate().type().name()

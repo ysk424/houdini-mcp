@@ -19,11 +19,15 @@ from houdinimcp.handlers.parameters import (
 
 
 class MockParmTemplate:
-    def __init__(self, parm_type="Float"):
+    def __init__(self, parm_type="Float", label=""):
         self._type = parm_type
+        self._label = label
 
     def type(self):
         return types.SimpleNamespace(name=lambda: self._type)
+
+    def label(self):
+        return self._label
 
     def menuItems(self):
         return ()
@@ -33,6 +37,7 @@ class MockParmTemplate:
 
 
 class MockParm:
+    """Mirrors real hou.Parm: NO .label() method (label lives on parmTemplate)."""
     def __init__(self, name, value=0.0, label="", locked=False, at_default=True):
         self._name = name
         self._value = value
@@ -45,9 +50,6 @@ class MockParm:
     def name(self):
         return self._name
 
-    def label(self):
-        return self._label
-
     def eval(self):
         return self._value
 
@@ -58,7 +60,7 @@ class MockParm:
         self._value = val
 
     def parmTemplate(self):
-        return MockParmTemplate()
+        return MockParmTemplate(label=self._label)
 
     def isAtDefault(self):
         return self._at_default
@@ -76,7 +78,7 @@ class MockParm:
     def expression(self):
         if self._expression:
             return self._expression
-        raise type(sys.modules["hou"]).OperationFailed("No expression")
+        raise sys.modules["hou"].OperationFailed("No expression")
 
     def expressionLanguage(self):
         return "Hscript"
@@ -144,6 +146,18 @@ class TestParameterHandlers:
         result = get_parameter("/obj/node1", "tx")
         assert result["value"] == 1.0
         assert result["name"] == "tx"
+
+    def test_get_parameter_regression_label_via_template(self):
+        """Regression: get_parameter previously called parm.label(), which raises
+        AttributeError on real hou.Parm in 21.x for ANY parm on ANY node. The
+        label must be read from the parm template instead. See B1.
+        """
+        result = get_parameter("/obj/node1", "tx")
+        assert isinstance(result, dict)
+        assert result["name"] == "tx"
+        assert result["label"] == "Translate X"
+        assert "value" in result
+        assert "type" in result
 
     def test_get_parameter_not_found(self):
         with pytest.raises(ValueError, match="Parameter not found"):

@@ -1,6 +1,8 @@
 """Parameter read/write handlers."""
 import hou
 
+from ._parm_utils import parm_label
+
 
 def get_parameter(node_path, parm_name):
     """Get a single parameter's value and metadata."""
@@ -13,7 +15,7 @@ def get_parameter(node_path, parm_name):
     template = parm.parmTemplate()
     result = {
         "name": parm.name(),
-        "label": parm.label(),
+        "label": parm_label(parm),
         "value": parm.eval(),
         "raw_value": parm.rawValue(),
         "type": template.type().name(),
@@ -66,7 +68,7 @@ def get_parameter_schema(node_path):
         template = parm.parmTemplate()
         info = {
             "name": parm.name(),
-            "label": parm.label(),
+            "label": parm_label(parm),
             "type": template.type().name(),
             "is_at_default": parm.isAtDefault(),
         }

@@ -1,4 +1,6 @@
 """VEX wrangle creation and validation handlers."""
+import uuid
+
 import hou
 
 
@@ -55,6 +57,31 @@ def create_vex_expression(parent_path, attrib_name, expression, run_over="Points
 
 
 def validate_vex(code):
-    """Validate VEX code syntax (basic check via hou.text.vexSyntaxCheck)."""
-    result = hou.text.vexSyntaxCheck(code)
-    return {"valid": result == "", "errors": result if result else None}
+    """Validate VEX code syntax by force-cooking a throwaway attribwrangle.
+
+    `hou.text.vexSyntaxCheck` does not exist in Houdini 21.x (the docs reference
+    is stale). The only reliable check is to cook real VEX and capture
+    node.errors(). We do that on a temp /obj/geo + attribwrangle pair, then
+    destroy it. The undo stack is suppressed so this leaves no trace.
+
+    Returns {"valid": bool, "errors": str or None}.
+    """
+    obj = hou.node("/obj")
+    if not obj:
+        raise RuntimeError("/obj context not found")
+    tmp_name = f"__mcp_vex_validate_{uuid.uuid4().hex[:8]}__"
+    with hou.undos.disabler():
+        geo = obj.createNode("geo", node_name=tmp_name)
+        try:
+            wr = geo.createNode("attribwrangle", node_name="wr")
+            wr.parm("snippet").set(code)
+            try:
+                wr.cook(force=True)
+            except hou.OperationFailed:
+                pass
+            errors = wr.errors()
+            if errors:
+                return {"valid": False, "errors": "\n".join(errors)}
+            return {"valid": True, "errors": None}
+        finally:
+            geo.destroy()

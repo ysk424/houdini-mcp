@@ -185,8 +185,7 @@ class TestCommandDispatcher:
         self.server.port = 9876
         self.server.running = False
         self.server.socket = None
-        self.server.client = None
-        self.server.buffer = b""
+        self.server.clients = {}
         self.server.timer = None
         from houdinimcp.event_collector import EventCollector
         self.server.event_collector = EventCollector()
@@ -245,8 +244,107 @@ class TestCommandDispatcher:
         assert "alive" in result
         assert "host" in result
         assert "port" in result
+        assert "client_count" in result
+        assert "has_client" in result
         assert result["alive"] is True
         assert result["port"] == 9876
+        assert result["client_count"] == 0
+        assert result["has_client"] is False
+
+    def test_ping_reports_multiple_clients(self):
+        """client_count and has_client reflect the size of self.clients."""
+        # Stub two fake clients (only the dict size is read by ping)
+        self.server.clients = {object(): b"", object(): b""}
+        result = self.server.ping()
+        assert result["client_count"] == 2
+        assert result["has_client"] is True
+
+    def test_process_server_dispatches_to_each_client(self):
+        """Two simultaneously connected clients each receive their own response.
+
+        This is the multi-client guarantee: per-client buffers are independent
+        and every client's complete JSON command produces a response.
+        """
+        import json as _json
+
+        class _MockClient:
+            def __init__(self, payload):
+                self._payload = payload
+                self.sent = b""
+                self._closed = False
+
+            def recv(self, _n):
+                if self._payload is None:
+                    raise BlockingIOError
+                data, self._payload = self._payload, None
+                return data
+
+            def sendall(self, data):
+                self.sent += data
+
+            def close(self):
+                self._closed = True
+
+        class _MockListenSocket:
+            def accept(self):
+                raise BlockingIOError
+
+        c1 = _MockClient(b'{"type": "ping"}')
+        c2 = _MockClient(b'{"type": "ping"}')
+        self.server.running = True
+        self.server.socket = _MockListenSocket()
+        self.server.clients = {c1: b"", c2: b""}
+
+        self.server._process_server()
+
+        for c in (c1, c2):
+            assert c.sent, "expected each client to receive a response"
+            response = _json.loads(c.sent.decode("utf-8"))
+            assert response["status"] == "success"
+            assert response["result"]["alive"] is True
+
+    def test_process_server_isolates_partial_buffers(self):
+        """A partial JSON in one client must not corrupt another client's stream."""
+        import json as _json
+
+        class _MockClient:
+            def __init__(self, chunks):
+                # chunks is a list popped left-to-right; BlockingIOError when empty
+                self._chunks = list(chunks)
+                self.sent = b""
+
+            def recv(self, _n):
+                if not self._chunks:
+                    raise BlockingIOError
+                return self._chunks.pop(0)
+
+            def sendall(self, data):
+                self.sent += data
+
+            def close(self):
+                pass
+
+        class _MockListenSocket:
+            def accept(self):
+                raise BlockingIOError
+
+        # c1 sends only the first half; c2 sends a complete command
+        c1 = _MockClient([b'{"type": "pi'])
+        c2 = _MockClient([b'{"type": "ping"}'])
+        self.server.running = True
+        self.server.socket = _MockListenSocket()
+        self.server.clients = {c1: b"", c2: b""}
+
+        self.server._process_server()
+
+        # c1 has no response yet (buffer still partial)
+        assert c1.sent == b""
+        assert self.server.clients[c1] == b'{"type": "pi'
+        # c2 has a complete response
+        assert c2.sent
+        assert _json.loads(c2.sent.decode("utf-8"))["result"]["alive"] is True
+        # c1's buffer survives untouched
+        assert b'pi' in self.server.clients[c1]
 
     def test_dangerous_code_blocked(self):
         """execute_code should reject dangerous patterns by default."""

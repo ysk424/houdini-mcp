@@ -135,8 +135,7 @@ class HoudiniMCPServer:
         self.port = port
         self.running = False
         self.socket = None
-        self.client = None
-        self.buffer = b''
+        self.clients = {}
         self.timer = None
         self.event_collector = EventCollector()
 
@@ -147,7 +146,7 @@ class HoudiniMCPServer:
         self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             self.socket.bind((self.host, self.port))
-            self.socket.listen(1)
+            self.socket.listen(8)
             self.socket.setblocking(False)
             self.timer = QtCore.QTimer()
             self.timer.timeout.connect(self._process_server)
@@ -167,52 +166,78 @@ class HoudiniMCPServer:
             self.timer = None
         if self.socket:
             self.socket.close()
-        if self.client:
-            self.client.close()
+        for client in list(self.clients):
+            try:
+                client.close()
+            except Exception:
+                pass
+        self.clients.clear()
         self.socket = None
-        self.client = None
         print("HoudiniMCP server stopped")
 
-    def _process_server(self):
-        """Timer callback to accept connections and process incoming data."""
-        if not self.running:
-            return
+    def _drop_client(self, client):
+        """Close a client socket and remove it from the active set."""
         try:
-            if not self.client and self.socket:
-                try:
-                    self.client, address = self.socket.accept()
-                    self.client.setblocking(False)
-                    print(f"Connected to client: {address}")
-                except BlockingIOError:
-                    pass
-                except Exception as e:
-                    print(f"Error accepting connection: {str(e)}")
-            if self.client:
-                try:
-                    data = self.client.recv(8192)
-                    if data:
-                        self.buffer += data
-                        try:
-                            command = json.loads(self.buffer.decode('utf-8'))
-                            self.buffer = b''
-                            response = self.execute_command(command)
-                            self.client.sendall(json.dumps(response).encode('utf-8'))
-                        except json.JSONDecodeError:
-                            pass
-                    else:
-                        print("Client disconnected")
-                        self.client.close()
-                        self.client = None
-                        self.buffer = b''
-                except BlockingIOError:
-                    pass
-                except Exception as e:
-                    print(f"Error receiving data: {str(e)}")
-                    self.client.close()
-                    self.client = None
-                    self.buffer = b''
-        except Exception as e:
-            print(f"Server error: {str(e)}")
+            client.close()
+        except Exception:
+            pass
+        self.clients.pop(client, None)
+
+    def _process_server(self):
+        """Timer callback to accept connections and process incoming data.
+
+        Multi-client model: accepts every pending connection on each tick and
+        services all open clients in turn. Each client has its own receive
+        buffer so partial JSON from one does not corrupt another. Command
+        execution is still serial — Houdini's hou API is single-threaded — so
+        this gives concurrent connections, sequential dispatch.
+        """
+        if not self.running or not self.socket:
+            return
+
+        # Accept all pending connections this tick
+        while True:
+            try:
+                client, address = self.socket.accept()
+            except BlockingIOError:
+                break
+            except Exception as e:
+                print(f"Error accepting connection: {str(e)}")
+                break
+            client.setblocking(False)
+            self.clients[client] = b''
+            print(f"Connected to client: {address} (total: {len(self.clients)})")
+
+        # Service each client. Iterate over a snapshot because we may drop entries.
+        for client in list(self.clients):
+            try:
+                data = client.recv(8192)
+            except BlockingIOError:
+                continue
+            except Exception as e:
+                print(f"Error receiving data: {str(e)}")
+                self._drop_client(client)
+                continue
+
+            if not data:
+                print(f"Client disconnected (remaining: {len(self.clients) - 1})")
+                self._drop_client(client)
+                continue
+
+            self.clients[client] += data
+            try:
+                command = json.loads(self.clients[client].decode('utf-8'))
+            except json.JSONDecodeError:
+                # Partial JSON — keep buffering until the next tick
+                continue
+
+            self.clients[client] = b''
+            response = self.execute_command(command)
+            try:
+                client.sendall(json.dumps(response).encode('utf-8'))
+            except Exception as e:
+                print(f"Error sending response: {str(e)}")
+                self._drop_client(client)
 
     def execute_command(self, command):
         """Entry point for executing a JSON command from the client."""
@@ -441,7 +466,8 @@ class HoudiniMCPServer:
             "alive": True,
             "host": self.host,
             "port": self.port,
-            "has_client": self.client is not None,
+            "client_count": len(self.clients),
+            "has_client": len(self.clients) > 0,
         }
 
     def batch(self, operations):

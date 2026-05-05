@@ -138,6 +138,44 @@ Render a flipbook sequence from the viewport. Parameters:
 - `output`: file path with `$F4` for frame number
 - `resolution`: [width, height]
 
+### `get_rop_output_path`
+Resolve a ROP node's primary output filepath without running a render. Closes the asymmetry with `set_render_settings`. Read-only; no side effects.
+
+Resolution tiers (first match wins):
+1. `picture_param=` — explicit override; use for HDA / unknown engines
+2. Known parm-name map per ROP type (`karma`→`picture`, `ifd`→`vm_picture`, `usdrender_rop`→`outputimage`, `geometry`→`sopoutput`, `alembic`→`filename`, etc.)
+3. Tag scan over FileReference write-tagged parms (sidecars like `husk_*`, `soho_*`, `vm_tmp*`, `dcm*` filtered out)
+
+Parameters:
+- `path`: ROP node path (required)
+- `picture_param`: explicit parm name to read; raises if not found
+- `frame`: frame to substitute into `$F`/`$FF` (default: current playbar frame)
+- `expand`: when False, keep `$HIP`/`$F` unresolved in `path_raw`; `path_resolved` becomes `null`
+- `min_mtime`: Unix-epoch seconds; if file's mtime is not strictly greater, `exists` is reported as False (use `time.time()` before `start_render` to poll for fresh output without false positives from stale prior renders)
+
+Returns a dict with:
+- `path_raw`, `path_resolved`, `frame_used`
+- `is_sequence` (definitive: `evalAtFrame(1) != evalAtFrame(2)`)
+- `frame_range`, `frame_range_active` (true iff `trange != 0`)
+- `first_frame_path`, `last_frame_path` (only when sequence + range active)
+- `representative_path` — the path used for `exists`/`mtime`/`size_bytes` checks (first frame for active sequences, current frame otherwise)
+- `category`: `image` | `mplay` | `usd` | `geometry` | `usd_render_via_settings` | `unknown`
+- `exists`, `mtime`, `size_bytes`
+- `param_used`, `param_source` (`override` | `known_map` | `tag_scan`), `tag_scan_candidates`
+- `warnings`: `hip_unsaved` (when `$HIP` used in unsaved scene), `override_param_empty` (when `picture_param` resolves to empty)
+- `hint`: when `category == "usd_render_via_settings"`, points at the RenderSettings USD prim
+
+Polling pattern for mid-render output detection:
+
+```python
+import time
+t0 = time.time()
+start_render(path)
+# In a poll loop with natural agent cadence:
+result = get_rop_output_path(path, min_mtime=t0)
+# result["exists"] == False until a freshly-written file appears
+```
+
 ---
 
 ## PDG/TOPs

@@ -28,6 +28,17 @@ Hard-won lessons from real production use of the Houdini MCP. Organized by conte
 - [SOPs / File Cache](#sops--file-cache)
   - [parm.set() Silently Ignored When Expression Active](#parmset-silently-ignored-when-expression-active)
   - [hbatch render Only Works with ROPs, Not SOPs](#hbatch-render-only-works-with-rops-not-sops)
+- [ROPs / Rendering](#rops--rendering)
+  - [OpenGL ROP picture Defaults to Literal "ip"](#opengl-rop-picture-defaults-to-literal-ip-mplay-not-a-file-path)
+  - [Unsaved HIP Resolves $HIP to Install Dir](#unsaved-hip-resolves-hip-to-the-houdini-install-directory)
+  - [Karma & Mantra Sidecar Parms](#karma--mantra-rops-have-multiple-write-tagged-sidecar-parms)
+  - [usdrender_rop outputimage Empty by Default](#usdrender_rop-defaults-outputimage-to-empty--real-output-is-in-rendersettings-prim)
+  - [Alembic ROP Tags Differently](#alembic-rop-tags-output-parm-differently-than-most-rops)
+  - [Sequence Detection by Frame Comparison](#sequence-detection-compare-frame-substitutions-dont-regex-the-raw-string)
+  - [hou.expandString Loses Node Context for $OS](#houexpandstring-loses-node-context-for-os)
+  - [flipbookSettings.resolution Silently Ignored Without useResolution](#flipbooksettingsresolution-is-silently-ignored-without-useresolutiontrue)
+  - [Toggle Server Does Not Reload Plugin Code](#toggle-server-shelf-button-does-not-reload-plugin-code)
+  - [Flipbook Off-Screen Viewport in Single Layout](#sceneviewerflipbookviewport-settings-silently-fails-for-off-screen-viewports-in-single-layout)
 - [General MCP Usage](#general-mcp-usage)
   - [Connection Discipline](#connection-discipline)
   - [Node Inspection Caveats](#node-inspection-caveats)
@@ -410,6 +421,124 @@ node.parm("execute").pressButton()
 ```
 
 `pressButton()` is synchronous in hython — it blocks until all frames are written.
+
+---
+
+## ROPs / Rendering
+
+### OpenGL ROP `picture` Defaults to Literal `"ip"` (MPlay), Not a File Path
+
+> Houdini 21.0.631
+
+A freshly created `opengl` ROP has `picture = "ip"`. Calling `parm.eval()` returns the string `"ip"` — not a path. Code that treats every ROP's output parm as a filesystem path will report a non-existent file at `"ip"` and confuse downstream logic.
+
+**Fix:** Treat raw values `"ip"` and `"md"` as MPlay sentinels (in-process and disk-backed MPlay). Classify them out of the image category and skip filesystem checks. `get_rop_output_path` returns `category: "mplay"`, `exists: false`.
+
+### Unsaved HIP Resolves `$HIP` to the Houdini Install Directory
+
+> Houdini 21.0.631
+
+In an unsaved scene, `hou.hipFile.path()` returns `<install>/bin/untitled.hip`, so `hou.expandString("$HIP/render/...")` lands inside the Houdini install dir (e.g., `C:/Program Files/.../bin/render/`). Renders technically succeed but write to a surprising location, and the agent reports paths the user can't easily find.
+
+**Diagnosis:** Check `hou.hipFile.name() == "untitled.hip"` and the resolved path — they're consistent indicators.
+
+**Fix:** Surface a warning when `$HIP` or `$HIPNAME` appears in a raw parm value while the scene is unsaved. `get_rop_output_path` emits `warnings: ["hip_unsaved"]` for this case.
+
+### Karma & Mantra ROPs Have Multiple Write-Tagged Sidecar Parms
+
+> Houdini 21.0.631
+
+A naive scan of "all `FileReference` parms with `tags.filechooser_mode == 'write'`" picks up sidecars, not the actual output:
+
+- **Karma** (`karma`): `picture`, `dcmfilename`, `husk_chromefile`, `husk_stdout`, `husk_stderr` — five candidates.
+- **Mantra** (`ifd`): `vm_picture`, `soho_diskfile` (.ifd intermediate), `vm_tmpsharedstorage` (storage path), `vm_tmplocalstorage`.
+
+**Fix:** When tag-scanning for an output parm, reject names starting with `husk_`, `soho_`, `vm_tmp`, `dcm`, or containing `_storage`/`_chromefile`/`_stdout`/`_stderr`. Better yet, prefer a per-ROP-type known-name map and fall back to tag scanning only for unknown types.
+
+### `usdrender_rop` Defaults `outputimage` to Empty — Real Output Is in RenderSettings Prim
+
+> Houdini 21.0.631
+
+A freshly created `usdrender_rop` has `outputimage = ""`. The actual render output is governed by the USD `RenderSettings` prim (path in the `rendersettings` parm, default `/Render/rendersettings`), specifically its `outputs:render` / `productName` attributes. The ROP only honors `outputimage` if it's explicitly set as an override.
+
+**Anti-pattern:** Reading `outputimage` and reporting it as the render output — returns empty string.
+
+**Fix:** When `outputimage` is empty on a `usdrender_rop`, classify as needing USD-stage resolution. `get_rop_output_path` returns `category: "usd_render_via_settings"` with the RenderSettings prim path in `hint`. Resolving the actual product name requires cooking the LOP stage and reading the prim — out of scope for a pure parm read.
+
+### Alembic ROP Tags Output Parm Differently Than Most ROPs
+
+> Houdini 21.0.631
+
+The `alembic` ROP's `filename` parm has `tags = {"filechooser_pattern": "*.abc"}` — no `filechooser_mode: write` tag. Tag scans that filter strictly on `filechooser_mode == "write"` miss it.
+
+**Fix:** Accept either tag as a write-output marker: `tags.get("filechooser_mode") == "write"` OR `"filechooser_pattern" in tags`. (`get_rop_output_path` uses both.)
+
+### Sequence Detection: Compare Frame Substitutions, Don't Regex the Raw String
+
+> Houdini 21.0.631
+
+Detecting whether a parm value renders a sequence by regex-matching `$F` / `$FF` / `$F\d+` in the raw string misses custom HDA tokens, expression-driven frame substitution, and edge cases like `$N`. The definitive test is whether the parm evaluates differently at two distinct frames:
+
+```python
+is_sequence = parm.evalAtFrame(1) != parm.evalAtFrame(2)
+```
+
+This works for any frame-dependent expression, not just the documented frame variables.
+
+### `hou.expandString` Loses Node Context for `$OS`
+
+> Houdini 21.0.631
+
+Karma's default output is `$HIP/render/$HIPNAME.$OS.$F4.exr`. Resolving with `hou.expandString(raw)` gives the wrong result because `$OS` (operator name) requires node context. `hou.expandStringAtFrame(raw, frame)` has the same issue.
+
+**Fix:** Use `parm.evalAtFrame(frame)` instead — it carries the parm's owning node context and resolves `$OS` to the node name correctly.
+
+---
+
+### `flipbookSettings.resolution()` Is Silently Ignored Without `useResolution(True)`
+
+> Houdini 21.0.700
+
+`SceneViewer.flipbookSettings()` exposes both `resolution((w,h))` and `useResolution(bool)`. Calling `resolution()` alone has no effect — the flipbook writes at the viewport's current pixel size. Must call `useResolution(True)` first.
+
+Also: `outputToMPlay(False)` is required to avoid flashing the MPlay window, and `frameRange((F, F))` for a single static frame does **not** move the playbar — no `setFrame` save/restore needed.
+
+---
+
+### "Toggle Server" Shelf Button Does Not Reload Plugin Code
+
+> Houdini 21.0.700
+
+The Toggle Server shelf button calls `stop()` / `start()` on the running `HoudiniMCPServer` instance. This re-binds the TCP listener but does **not** reload the `houdinimcp` Python modules — the running instance's class still references the imports captured at original load time. New commands added to the dispatcher after deploying updated handler files will return `Unknown command type: <name>` until Houdini is fully restarted.
+
+**Fix (clean):** Restart Houdini after `python scripts/install.py`. The plugin auto-imports via `pythonrc.py` and picks up the new code.
+
+**Fix (no-restart, runtime patch):** From an MCP `execute_houdini_code` call, `importlib.reload` the affected modules then monkey-patch the running server's class to inject the new handler:
+
+```
+import importlib, hou
+import houdinimcp.handlers.rendering, houdinimcp.server
+importlib.reload(houdinimcp.handlers.rendering)
+importlib.reload(houdinimcp.server)
+from houdinimcp.handlers.rendering import new_handler
+running = hou.session.houdinimcp_server
+orig = type(running)._get_handlers
+def patched(self):
+    h = orig(self); h["new_command"] = new_handler; return h
+type(running)._get_handlers = patched
+```
+
+The patch survives only until Houdini exits.
+
+---
+
+### `SceneViewer.flipbook(viewport, settings)` Silently Fails for Off-Screen Viewports in Single Layout
+
+> Houdini 21.0.700
+
+A SceneViewer in `Single` layout still reports four `viewports()` (e.g. `right1`, `front1`, `top1`, `front2`), but only `curViewport()` is actually drawn — the others sit at a 1×1 / 101×101 stub. Calling `flipbook(off_screen_vp, settings)` produces no output file, and on some builds hangs Houdini's renderer until the bridge connection times out (WinError 10053).
+
+**Fix:** Before flipbook, gate on `viewer.viewportLayout() == hou.geometryViewportLayout.Single` and require the requested viewport to equal `viewer.curViewport()`. Multi-view layouts (Quad, Double*, Triple*) draw all `viewports()` and accept any of them.
 
 ---
 

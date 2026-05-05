@@ -32,7 +32,8 @@ import time as _time
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
-from mcp.server.fastmcp import FastMCP, Context
+import base64 as _base64
+from mcp.server.fastmcp import FastMCP, Context, Image
 import asyncio
 
 HOUDINI_PORT = int(os.getenv("HOUDINIMCP_PORT", 9876))
@@ -1134,6 +1135,67 @@ def render_flipbook(ctx: Context, frame_range: List[float] = None,
         params["resolution"] = resolution
     return _send_tool_command("render_flipbook", params)
 
+@mcp.tool()
+def screenshot_viewport(ctx: Context, width: int = 800, height: int = 600,
+                        viewport_name: str = None, pane_tab_name: str = None,
+                        frame: int = None):
+    """Capture the current SceneViewer viewport as a PNG and return it inline.
+
+    Uses an OpenGL flipbook (fast preview, NOT Karma/Mantra). No scene
+    side-effects: stashes the user's flipbook settings and does not move the
+    playbar. Returns an inline image plus a JSON metadata block.
+
+    Args:
+        width: output width in [128, 4096]. Default 800.
+        height: output height in [128, 4096]. Default 600.
+        viewport_name: name of the viewport inside the SceneViewer pane
+            (e.g. "persp1", "front2"). Required when the desktop uses a
+            quad-view layout and you want a specific quadrant. If omitted,
+            the SceneViewer's current viewport is used.
+        pane_tab_name: name of the SceneViewer pane tab (e.g. "panetab1").
+            Required when multiple SceneViewers are open. If omitted, the
+            first SceneViewer found is used.
+        frame: frame to capture. If omitted, the playbar's current frame.
+            The playbar is not modified.
+    """
+    params = {"width": width, "height": height}
+    if viewport_name is not None:
+        params["viewport_name"] = viewport_name
+    if pane_tab_name is not None:
+        params["pane_tab_name"] = pane_tab_name
+    if frame is not None:
+        params["frame"] = frame
+
+    try:
+        conn = get_houdini_connection()
+        response = conn.send_command("screenshot_viewport", params)
+    except ConnectionError as e:
+        return f"Houdini unreachable: {e}"
+    except Exception as e:
+        logger.error(f"screenshot_viewport failed: {e}", exc_info=True)
+        return f"screenshot_viewport failed: {e}"
+
+    if response.get("status") == "error":
+        origin = response.get("origin", "houdini")
+        return f"Error ({origin}): {response.get('message', 'Unknown error')}"
+
+    result = response.get("result", {})
+    if not isinstance(result, dict):
+        return f"Unexpected response: {json.dumps(response)[:500]}"
+    if result.get("status") == "error":
+        return f"Error ({result.get('origin', 'houdini')}): {result.get('message')}"
+    if "image_base64" not in result:
+        return f"Missing image data in response: {json.dumps(result)[:500]}"
+
+    try:
+        png_bytes = _base64.b64decode(result["image_base64"])
+    except Exception as e:
+        return f"Failed to decode image: {e}"
+
+    metadata = {k: v for k, v in result.items()
+                if k not in ("image_base64", "mime_type", "status")}
+    return [Image(data=png_bytes, format="png"), json.dumps(metadata, indent=2)]
+
 
 # ── DOP tools ──
 
@@ -1278,6 +1340,37 @@ def start_render(ctx: Context, path: str, frame_range: List[float] = None) -> st
 def get_render_progress(ctx: Context, path: str) -> str:
     """Get render progress from a ROP node."""
     return _send_tool_command("get_render_progress", {"path": path})
+
+@mcp.tool()
+def get_rop_output_path(ctx: Context, path: str,
+                        picture_param: str = None,
+                        frame: int = None,
+                        expand: bool = True,
+                        min_mtime: float = None) -> str:
+    """Resolve a ROP node's primary output filepath with sequence + freshness metadata.
+
+    Resolution tiers:
+      1. picture_param= overrides everything (use for HDA / unknown engines).
+      2. Known parm-name map per ROP type (karma→picture, ifd→vm_picture, etc.).
+      3. FileReference write-tagged parm scan (sidecars filtered).
+
+    Returns dict with: path_raw, path_resolved, frame_used, is_sequence,
+    frame_range, frame_range_active, first_frame_path, last_frame_path,
+    representative_path, category (image|mplay|usd|geometry|usd_render_via_settings|unknown),
+    exists, mtime, size_bytes, warnings, param_used, param_source, tag_scan_candidates, hint.
+
+    Pass min_mtime=time.time() before start_render() to poll for freshly-written
+    output without false positives from stale prior renders. Set expand=False to
+    keep $F/$HIP unresolved in path_raw (path_resolved becomes None).
+    """
+    params = {"path": path, "expand": expand}
+    if picture_param is not None:
+        params["picture_param"] = picture_param
+    if frame is not None:
+        params["frame"] = frame
+    if min_mtime is not None:
+        params["min_mtime"] = min_mtime
+    return _send_tool_command("get_rop_output_path", params)
 
 # ── COP tools ──
 

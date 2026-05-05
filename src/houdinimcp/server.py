@@ -82,9 +82,10 @@ from .handlers.viewport import (
 )
 from .handlers.rendering import (
     handle_render_single_view, handle_render_quad_view,
-    handle_render_specific_camera, render_flipbook,
+    handle_render_specific_camera, render_flipbook, screenshot_viewport,
     list_render_nodes, get_render_settings, set_render_settings,
     create_render_node, start_render, get_render_progress,
+    get_rop_output_path,
 )
 from .event_collector import EventCollector
 
@@ -298,6 +299,7 @@ class HoudiniMCPServer:
             "render_quad_view": handle_render_quad_view,
             "render_specific_camera": handle_render_specific_camera,
             "render_flipbook": render_flipbook,
+            "screenshot_viewport": screenshot_viewport,
             # Context
             "get_network_overview": get_network_overview,
             "get_cook_chain": get_cook_chain,
@@ -387,6 +389,7 @@ class HoudiniMCPServer:
             "create_render_node": create_render_node,
             "start_render": start_render,
             "get_render_progress": get_render_progress,
+            "get_rop_output_path": get_rop_output_path,
             # COPs
             "get_cop_info": get_cop_info,
             "get_cop_geometry": get_cop_geometry,

@@ -80,7 +80,7 @@ class MockNodeAnim:
 
 
 from houdinimcp.handlers.animation import (
-    set_keyframe, set_keyframes, delete_keyframe, get_keyframes,
+    set_keyframes, delete_keyframe, get_keyframes,
     get_frame, set_frame_range, set_playback_range, playbar_control,
 )
 
@@ -96,11 +96,6 @@ class TestAnimationHandlers:
     def teardown_method(self):
         sys.modules["hou"].node = self._orig_node
 
-    def test_set_keyframe(self):
-        result = set_keyframe("/obj/node1", "tx", 1.0, 5.0)
-        assert result["frame"] == 1.0
-        assert len(self.parm._keyframes) == 1
-
     def test_set_keyframes(self):
         result = set_keyframes("/obj/node1", "tx", [
             {"frame": 1, "value": 0}, {"frame": 24, "value": 10},
@@ -108,14 +103,19 @@ class TestAnimationHandlers:
         assert result["count"] == 2
         assert len(self.parm._keyframes) == 2
 
+    def test_set_keyframes_single(self):
+        result = set_keyframes("/obj/node1", "tx", [{"frame": 1.0, "value": 5.0}])
+        assert result["count"] == 1
+        assert len(self.parm._keyframes) == 1
+
     def test_delete_keyframe(self):
-        set_keyframe("/obj/node1", "tx", 1.0, 5.0)
+        set_keyframes("/obj/node1", "tx", [{"frame": 1.0, "value": 5.0}])
         result = delete_keyframe("/obj/node1", "tx", 1.0)
         assert result["deleted"] is True
         assert len(self.parm._keyframes) == 0
 
     def test_get_keyframes(self):
-        set_keyframe("/obj/node1", "tx", 1.0, 5.0)
+        set_keyframes("/obj/node1", "tx", [{"frame": 1.0, "value": 5.0}])
         result = get_keyframes("/obj/node1", "tx")
         assert len(result["keyframes"]) == 1
 
@@ -141,7 +141,7 @@ class TestAnimationHandlers:
         with pytest.raises(ValueError, match="Unknown action"):
             playbar_control("fast_forward")
 
-    def test_set_keyframe_node_not_found(self):
+    def test_set_keyframes_node_not_found(self):
         sys.modules["hou"].node = lambda p: None
         with pytest.raises(ValueError, match="Node not found"):
-            set_keyframe("/obj/missing", "tx", 1.0, 0.0)
+            set_keyframes("/obj/missing", "tx", [{"frame": 1.0, "value": 0.0}])

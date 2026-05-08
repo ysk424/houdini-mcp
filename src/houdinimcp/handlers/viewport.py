@@ -1,6 +1,4 @@
 """Viewport and pane manipulation handlers."""
-import os
-
 import hou
 
 
@@ -31,17 +29,72 @@ def get_viewport_info():
     }
 
 
+def _viewer_in_lop_context(viewer):
+    """Return True if the SceneViewer's current network is LOP/stage."""
+    try:
+        pwd = viewer.pwd()
+    except Exception:
+        return False
+    if pwd is None:
+        return False
+    if isinstance(pwd, hou.LopNode):
+        return True
+    try:
+        return pwd.childTypeCategory() == hou.lopNodeTypeCategory()
+    except Exception:
+        return False
+
+
 def set_viewport_camera(camera_path):
-    """Set the viewport camera to a specific camera node."""
+    """Set the viewport camera.
+
+    Accepts three forms:
+      - Object camera path (``/obj/cam1``) → passed as ObjNode.
+      - LOP camera node path (``/stage/camera1``) → ``primpath`` parm is read
+        and the SceneViewer is auto-switched into LOP context if not already.
+      - Raw USD camera prim path (``/cameras/cam1``) → passed as a string.
+        Requires the SceneViewer to already be in LOP context, otherwise
+        Houdini silently no-ops.
+    """
     viewer = hou.ui.paneTabOfType(hou.paneTabType.SceneViewer)
     if not viewer:
         raise RuntimeError("No scene viewer found")
-    cam = hou.node(camera_path)
-    if not cam:
-        raise ValueError(f"Camera not found: {camera_path}")
     viewport = viewer.curViewport()
-    viewport.setCamera(cam)
-    return {"camera": camera_path}
+
+    node = hou.node(camera_path)
+    if node is None:
+        viewport.setCamera(camera_path)
+        return {"camera": camera_path, "kind": "usd_prim_path"}
+
+    if isinstance(node, hou.ObjNode):
+        viewport.setCamera(node)
+        return {"camera": camera_path, "kind": "obj_camera"}
+
+    if isinstance(node, hou.LopNode):
+        primpath_parm = node.parm("primpath")
+        if primpath_parm is None:
+            raise ValueError(
+                f"LOP node has no 'primpath' parm: {camera_path}. "
+                f"If this is a wrapped HDA, pass the USD camera prim path "
+                f"directly (e.g. '/cameras/<name>') instead of the LOP node path."
+            )
+        prim_path = primpath_parm.evalAsString()
+        switched = False
+        if not _viewer_in_lop_context(viewer):
+            viewer.setCurrentNode(node)
+            switched = True
+        viewport.setCamera(prim_path)
+        return {
+            "camera": camera_path,
+            "kind": "lop_camera",
+            "primpath": prim_path,
+            "viewer_context_switched": switched,
+        }
+
+    raise ValueError(
+        f"Unsupported camera node type: {type(node).__name__} at {camera_path}. "
+        f"Expected ObjNode (Object camera) or LopNode (Solaris camera)."
+    )
 
 
 def set_viewport_display(shading_mode=None, guide=None):
@@ -119,19 +172,6 @@ def set_viewport_direction(direction):
         raise ValueError(f"Unknown direction: {direction}. Use: {list(dir_map.keys())}")
     viewport.changeType(vtype)
     return {"direction": direction}
-
-
-def capture_screenshot(output_path=None):
-    """Capture a screenshot of the current viewport."""
-    import tempfile  # noqa: local import for optional temp path
-    viewer = hou.ui.paneTabOfType(hou.paneTabType.SceneViewer)
-    if not viewer:
-        raise RuntimeError("No scene viewer found")
-    if not output_path:
-        output_path = os.path.join(tempfile.gettempdir(), "mcp_screenshot.png")
-    viewport = viewer.curViewport()
-    viewport.saveAsImage(output_path)
-    return {"filepath": output_path}
 
 
 def set_current_network(path):

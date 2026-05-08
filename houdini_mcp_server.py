@@ -592,17 +592,6 @@ def set_material(ctx: Context, node_path: str, material_type: str = "principleds
     return _send_tool_command("set_material", params)
 
 @mcp.tool()
-def connect_nodes(ctx: Context, src_path: str, dst_path: str,
-                  dst_input_index: int = 0, src_output_index: int = 0) -> str:
-    """Connect two nodes: src output -> dst input."""
-    return _send_tool_command("connect_nodes", {
-        "src_path": src_path,
-        "dst_path": dst_path,
-        "dst_input_index": dst_input_index,
-        "src_output_index": src_output_index,
-    })
-
-@mcp.tool()
 def disconnect_node_input(ctx: Context, node_path: str, input_index: int = 0) -> str:
     """Disconnect a specific input on a node."""
     return _send_tool_command("disconnect_node_input", {
@@ -725,17 +714,13 @@ def get_parameter(ctx: Context, node_path: str, parm_name: str) -> str:
     return _send_tool_command("get_parameter", {"node_path": node_path, "parm_name": parm_name})
 
 @mcp.tool()
-def set_parameter(ctx: Context, node_path: str, parm_name: str, value: Any) -> str:
-    """Set a single parameter value on a node."""
-    return _send_tool_command("set_parameter", {"node_path": node_path, "parm_name": parm_name, "value": value})
-
-@mcp.tool()
 def set_parameters(ctx: Context, node_path: str, parameters: Dict[str, Any]) -> str:
     """
-    Set multiple parameter values on a node in one call.
+    Set parameter values on a node. For a single parm, pass a 1-element dict: {parm_name: value}.
     Use after create_node or build_sop_chain to configure a node's behavior, or to tweak settings on an existing node.
     Args: node_path (full path like "/obj/garment_test/vellum_cloth"), parameters (a dict of {parm_internal_name: value}).
     Pitfall: parm keys are INTERNAL names from Houdini's parameter schema, NOT the GUI label strings. The GUI shows "Mass" but the internal name is "mass"; "Constraint Type" is "constrainttype"; "Material" on a material SOP is "shop_materialpath1". When unsure, call get_parameter_schema(node_path) first. Boolean toggles are integer 0/1, not Python True/False.
+    Single-parm pure failure raises (PermissionError / ValueError) so typos surface immediately. Multi-parm dicts return changes/failed/not_attempted for partial-success handling.
     Example: set_parameters("/obj/garment_test/vellum_cloth", {"constrainttype": 3, "domass": 1, "mass": 0.15, "dothickness": 1, "thickness": 0.0005}).
     """
     return _send_tool_command("set_parameters", {"node_path": node_path, "parameters": parameters})
@@ -779,18 +764,13 @@ def lock_parameter(ctx: Context, node_path: str, parm_name: str,
     })
 
 @mcp.tool()
-def create_spare_parameter(ctx: Context, node_path: str, name: str,
-                           label: str, parm_type: str, default: Any = None) -> str:
-    """Add a spare parameter to a node. Types: float, int, string, toggle."""
-    params = {"node_path": node_path, "name": name, "label": label, "parm_type": parm_type}
-    if default is not None:
-        params["default"] = default
-    return _send_tool_command("create_spare_parameter", params)
-
-@mcp.tool()
 def create_spare_parameters(ctx: Context, node_path: str,
                             parameters: List[Dict[str, Any]]) -> str:
-    """Add multiple spare parameters to a node at once."""
+    """Add spare parameters to a node. Types: float, int, string, toggle.
+
+    parameters: list of dicts with keys: name, label, parm_type, default (optional).
+    For a single parm, pass a 1-element list.
+    """
     return _send_tool_command("create_spare_parameters", {
         "node_path": node_path, "parameters": parameters,
     })
@@ -798,17 +778,12 @@ def create_spare_parameters(ctx: Context, node_path: str,
 # ── Animation tools ──
 
 @mcp.tool()
-def set_keyframe(ctx: Context, node_path: str, parm_name: str,
-                 frame: float, value: float) -> str:
-    """Set a keyframe on a parameter at a specific frame."""
-    return _send_tool_command("set_keyframe", {
-        "node_path": node_path, "parm_name": parm_name, "frame": frame, "value": value,
-    })
-
-@mcp.tool()
 def set_keyframes(ctx: Context, node_path: str, parm_name: str,
                   keyframes: List[Dict[str, float]]) -> str:
-    """Set multiple keyframes. Each: {frame, value}."""
+    """Set keyframes on a parameter. Each: {frame, value}.
+
+    For a single keyframe, pass a 1-element list.
+    """
     return _send_tool_command("set_keyframes", {
         "node_path": node_path, "parm_name": parm_name, "keyframes": keyframes,
     })
@@ -953,9 +928,25 @@ def list_node_types(ctx: Context, category: str = None) -> str:
     return _send_tool_command("list_node_types", params)
 
 @mcp.tool()
+def describe_node_type(ctx: Context, context: str, node_type: str, verbose: bool = False) -> str:
+    """
+    Get the static schema (parameters, IO, metadata) of a Houdini node type without instantiating it.
+    Use this BEFORE creating a node to know which parms/folders/menus exist, instead of probing via create-then-inspect.
+    Args: context (NodeTypeCategory name, case-sensitive — e.g. "Lop", "Sop", "Object", "Vop", "Driver", "Cop" (=Copernicus, new), "Cop2" (=legacy compositing), "Top", "Chop"). node_type (internal name as it appears in nodeTypes() keys — e.g. "camera", "filecache::2.0", "kinefx::sopcharacterimport"). verbose (default False; True adds embedded help, callback bodies, full unfiltered tags, dynamic-menu script bodies).
+    Returns: JSON. On success {"ok": true, ...full schema...}. On failure {"ok": false, "error": {"kind": "category_not_found"|"node_type_not_found", "did_you_mean": [...]}}. Schema includes parms (flat list with folder_path), folders (with multiparm chain), inputs (min/max/is_variable), outputs. Input/output LABELS are not retrievable without instantiation; use create_node + get_node_info if labels are needed. HDA dynamic parms (added via OnCreated etc.) are not visible — dynamic_parms_possible flag indicates this risk. Manager/Director categories accept calls but contain 0 public types in Houdini 21.
+    Pitfall: context is case-sensitive — "lop" fails, "Lop" works. Pass scoped names exactly as they appear in nodeTypes() keys; "filecache" and "filecache::2.0" are distinct types, no implicit "latest version" alias.
+    Example: describe_node_type("Lop", "camera") returns focal/aperture/etc parm schema. describe_node_type("Sop", "kinefx::motionmixer") shows nested multiparms via multiparm_folder_chain.
+    """
+    return _send_tool_command("describe_node_type", {
+        "context": context,
+        "node_type": node_type,
+        "verbose": verbose,
+    })
+
+@mcp.tool()
 def connect_nodes_batch(ctx: Context, connections: List[Dict[str, Any]]) -> str:
     """
-    Connect multiple source-to-destination wires in one call.
+    Connect source-to-destination wires. For a single wire, pass a 1-element list.
     Use when wiring multi-input nodes (vellumsolver, switches, merges). For a linear SOP chain, prefer build_sop_chain.
     Args: connections (list; each: {"src_path", "dst_path", "dst_input_index", optional "src_output_index" default 0}).
     Pitfall: vellumsolver has 3 inputs with non-obvious semantics: input 0 = Vellum Geometry (cloth), input 1 = Constraint Geometry (the SAME node as input 0 in standard cloth, NOT collision), input 2 = Collision Geometry. Wiring the body to input 1 silently fails with "Invalid source ... load_a_field" errors.
@@ -1279,7 +1270,20 @@ def get_viewport_info(ctx: Context) -> str:
 
 @mcp.tool()
 def set_viewport_camera(ctx: Context, camera_path: str) -> str:
-    """Set the viewport camera to a specific camera node."""
+    """Set the viewport camera. Accepts three path forms:
+
+    - Object camera node path (e.g. ``/obj/cam1``).
+    - LOP camera node path (e.g. ``/stage/camera1``) — the handler reads the
+      node's ``primpath`` parm and auto-switches the SceneViewer into LOP
+      context if needed. The return value's ``viewer_context_switched`` flag
+      indicates whether a switch occurred.
+    - Raw USD camera prim path (e.g. ``/cameras/cam1``) — only works when the
+      SceneViewer is already in LOP context (otherwise Houdini silently
+      no-ops); prefer passing the LOP node path so the auto-switch runs.
+
+    For wrapped-HDA LOP cameras whose ``primpath`` parm is not promoted, pass
+    the USD prim path string directly.
+    """
     return _send_tool_command("set_viewport_camera", {"camera_path": camera_path})
 
 @mcp.tool()
@@ -1312,14 +1316,6 @@ def frame_all(ctx: Context) -> str:
 def set_viewport_direction(ctx: Context, direction: str) -> str:
     """Set viewport direction: front, back, left, right, top, bottom, persp."""
     return _send_tool_command("set_viewport_direction", {"direction": direction})
-
-@mcp.tool()
-def capture_screenshot(ctx: Context, output_path: str = None) -> str:
-    """Capture a screenshot of the current viewport."""
-    params = {}
-    if output_path is not None:
-        params["output_path"] = output_path
-    return _send_tool_command("capture_screenshot", params)
 
 @mcp.tool()
 def set_current_network(ctx: Context, path: str) -> str:
@@ -1832,6 +1828,79 @@ def monitor_render(ctx: Context, output_path: str = None) -> str:
     return json.dumps(info, indent=2)
 
 
+@mcp.tool()
+def undo(ctx: Context) -> str:
+    """Undo the most recent operation in Houdini's global undo stack.
+
+    Returns a dict with `performed` (bool) and either `undone_label` (the
+    label that was just undone) or `reason` (why nothing happened).
+
+    Note: Houdini's undo stack is process-global. This may undo a manual user
+    action, or another connected client's operation. Inspect `undone_label`
+    (entries created by this MCP are prefixed `MCP: `) to confirm what was
+    affected.
+    """
+    return _send_tool_command("undo")
+
+
+@mcp.tool()
+def redo(ctx: Context) -> str:
+    """Redo the most recently undone operation. No-op when the redo stack is empty.
+
+    Returns a dict with `performed` (bool) and either `redone_label` or `reason`.
+    """
+    return _send_tool_command("redo")
+
+
+@mcp.tool()
+def get_undo_history(ctx: Context, limit: int = 20) -> str:
+    """Return recent undo and redo stack labels (newest first; index 0 is the next target).
+
+    `limit` (1-200) caps both lists; `undo_total` and `redo_total` give the full
+    sizes. `current_head_label` is the label that the next `undo()` call would
+    consume (or null when the stack is empty).
+    """
+    return _send_tool_command("get_undo_history", {"limit": limit})
+
+
+@mcp.tool()
+def get_scene_dossier(
+    ctx: Context,
+    include_node_tree: bool = True,
+    include_errors: bool = True,
+    include_undo_history: bool = True,
+    include_rops: bool = True,
+    include_materials: bool = True,
+    include_cameras: bool = True,
+    include_selection: bool = True,
+    max_node_depth: int = 3,
+    max_undo_entries: int = 20,
+    max_children_per_node: int = 100,
+) -> str:
+    """One-shot snapshot of the current Houdini scene: contexts, node tree,
+    errors, undo history, ROPs, materials, cameras, selection. Read-only;
+    does not appear in undo history. Use this as the first call when
+    starting work on an unfamiliar scene to avoid many small inspection
+    calls. Use include_* flags to omit heavy sections when not needed.
+
+    ROP output paths are returned in a slim form (path_raw + sequence/range
+    metadata, no filesystem I/O). For resolved paths or freshness checks,
+    call get_rop_output_path on the specific ROP.
+    """
+    return _send_tool_command("get_scene_dossier", {
+        "include_node_tree": include_node_tree,
+        "include_errors": include_errors,
+        "include_undo_history": include_undo_history,
+        "include_rops": include_rops,
+        "include_materials": include_materials,
+        "include_cameras": include_cameras,
+        "include_selection": include_selection,
+        "max_node_depth": max_node_depth,
+        "max_undo_entries": max_undo_entries,
+        "max_children_per_node": max_children_per_node,
+    })
+
+
 # ── MCP Resources ──
 
 @mcp.resource("houdini://scene/info")
@@ -1890,7 +1959,7 @@ Steps:
 5. Transform with: xform, blast, delete, group, attribwrangle
 6. Boolean with: boolean, intersect, subtract
 7. Refine with: subdivide, polyextrude, polybevel, remesh
-8. Use connect_nodes to wire them together
+8. Use connect_nodes_batch to wire them together
 9. Set display/render flags with set_node_flags on the final node
 10. Use layout_children to organize the network
 11. Render with render_single_view to verify the result
@@ -1933,7 +2002,7 @@ Manual setup:
 1. Create source geometry (SOP level)
 2. Create DOP network: create_node(type="dopnet")
 3. Add appropriate solver nodes
-4. Configure solver parameters with set_parameter/set_parameters
+4. Configure solver parameters with set_parameters
 5. Set simulation frame range with set_frame_range
 6. Run simulation: step_simulation or use the playbar
 
@@ -1958,7 +2027,7 @@ Steps:
 1. Create a TOP network: create_node(type="topnet", parent="/obj")
 2. Add TOP nodes for your pipeline stages
 3. Common TOP types: localscheduler, filepattern, ropfetch, pythonprocessor, waitforall
-4. Connect nodes to define dependencies with connect_nodes
+4. Connect nodes to define dependencies with connect_nodes_batch
 5. Cook the network: pdg_cook(path)
 6. Monitor progress: pdg_status(path)
 7. Check work items: pdg_workitems(path, state="cooked|cooking|waiting|failed")
@@ -2037,9 +2106,9 @@ def debug_scene() -> str:
    - get_cache_status — check if caches are loaded
 
 7. Fix Issues:
-   - set_parameter — correct parameter values
+   - set_parameters — correct parameter values
    - revert_parameter — reset to defaults
-   - connect_nodes/disconnect_node_input — fix wiring
+   - connect_nodes_batch/disconnect_node_input — fix wiring
 
 8. Verify Fix:
    - render_single_view — visual verification

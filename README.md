@@ -303,7 +303,6 @@ No Houdini running? Bridge auto-launches hython → headless_server.py → serve
 | `frame_selection` | Frame the viewport on selected nodes |
 | `frame_all` | Frame all geometry in the viewport |
 | `set_viewport_direction` | Set viewport to a standard direction |
-| `capture_screenshot` | Capture a viewport screenshot |
 | `set_current_network` | Set the current network editor path |
 
 ### DOPs (8)

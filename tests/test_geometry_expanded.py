@@ -161,8 +161,10 @@ class MockGeo:
     def globalAttribs(self):
         return []
 
-    def vertices(self):
-        return []
+    def intrinsicValue(self, name):
+        if name == "vertexcount":
+            return 0
+        return None
 
     def attribValue(self, name):
         return "test"

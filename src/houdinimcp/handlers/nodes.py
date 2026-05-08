@@ -79,7 +79,7 @@ def get_node_info(path):
         "type": node.type().name(),
         "category": node.type().category().name(),
         "position": [node.position()[0], node.position()[1]],
-        "color": list(node.color()) if node.color() else None,
+        "color": list(node.color().rgb()) if node.color() else None,
         "is_bypassed": node.isBypassed(),
         "is_displayed": getattr(node, "isDisplayFlagSet", lambda: None)(),
         "is_rendered": getattr(node, "isRenderFlagSet", lambda: None)(),
@@ -119,24 +119,6 @@ def get_node_info(path):
         })
 
     return node_info
-
-
-def connect_nodes(src_path, dst_path, dst_input_index=0, src_output_index=0):
-    """Connect two nodes: src output -> dst input."""
-    src = hou.node(src_path)
-    dst = hou.node(dst_path)
-    if not src:
-        raise ValueError(f"Source node not found: {src_path}")
-    if not dst:
-        raise ValueError(f"Destination node not found: {dst_path}")
-    dst.setInput(dst_input_index, src, src_output_index)
-    return {
-        "connected": True,
-        "src": src.path(),
-        "dst": dst.path(),
-        "dst_input": dst_input_index,
-        "src_output": src_output_index,
-    }
 
 
 def disconnect_node_input(node_path, input_index=0):

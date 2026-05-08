@@ -36,9 +36,14 @@ _hou_mock.hipFile = types.SimpleNamespace(
     load=lambda *a, **kw: None,
 )
 _hou_mock.fps = lambda: 24.0
+_hou_mock.frame = lambda: 1.0
+_hou_mock.applicationVersionString = lambda: "21.0.700"
+_hou_mock.paneTabType = types.SimpleNamespace(NetworkEditor=0)
+_hou_mock.ui = types.SimpleNamespace(paneTabOfType=lambda t: None)
 _playbar_callbacks = []
 _hou_mock.playbar = types.SimpleNamespace(
     frameRange=lambda: (1, 240),
+    playbackRange=lambda: (1, 240),
     addEventCallback=lambda cb: _playbar_callbacks.append(cb),
     removeEventCallback=lambda cb: _playbar_callbacks.remove(cb) if cb in _playbar_callbacks else None,
 )
@@ -204,20 +209,20 @@ class TestCommandDispatcher:
         """Verify MUTATING_COMMANDS contains the expected commands."""
         expected = {
             "create_node", "modify_node", "delete_node", "execute_code",
-            "set_material", "connect_nodes", "disconnect_node_input",
+            "set_material", "disconnect_node_input",
             "set_node_flags", "save_scene", "load_scene", "set_expression",
             "set_frame", "layout_children", "set_node_color",
             "pdg_cook", "pdg_dirty", "pdg_cancel",
             "lop_import", "hda_install", "hda_create", "batch",
             # Phase 1
-            "set_selection", "set_parameter", "set_parameters",
+            "set_selection", "set_parameters",
             "revert_parameter", "link_parameters", "lock_parameter",
-            "create_spare_parameter", "create_spare_parameters",
+            "create_spare_parameters",
             # Phase 2
             "copy_node", "move_node", "rename_node", "connect_nodes_batch",
             "reorder_inputs", "set_detail_attrib", "execute_hscript",
             # Phase 3
-            "set_keyframe", "set_keyframes", "delete_keyframe",
+            "set_keyframes", "delete_keyframe",
             "set_frame_range", "set_playback_range", "playbar_control",
             "create_wrangle", "set_wrangle_code", "create_vex_expression",
             "create_material_network", "assign_material",
@@ -437,7 +442,7 @@ class TestCommandDispatcher:
             # Original
             "ping", "get_scene_info", "create_node", "modify_node",
             "delete_node", "get_node_info", "execute_code", "set_material",
-            "connect_nodes", "disconnect_node_input", "set_node_flags",
+            "disconnect_node_input", "set_node_flags",
             "save_scene", "load_scene", "set_expression", "set_frame",
             "get_geo_summary", "geo_export", "layout_children", "set_node_color",
             "find_error_nodes", "pdg_cook", "pdg_status", "pdg_workitems",
@@ -450,10 +455,10 @@ class TestCommandDispatcher:
             # Phase 1 — Context + Parameters
             "get_network_overview", "get_cook_chain", "explain_node",
             "get_scene_summary", "get_selection", "set_selection",
-            "get_parameter", "set_parameter", "set_parameters",
+            "get_parameter", "set_parameters",
             "get_parameter_schema", "get_expression", "revert_parameter",
             "link_parameters", "lock_parameter",
-            "create_spare_parameter", "create_spare_parameters",
+            "create_spare_parameters",
             # Phase 2 — Nodes + Geometry + Code
             "copy_node", "move_node", "rename_node", "list_children",
             "find_nodes", "list_node_types", "connect_nodes_batch", "reorder_inputs",
@@ -462,7 +467,7 @@ class TestCommandDispatcher:
             "get_prim_intrinsics", "find_nearest_point",
             "execute_hscript", "evaluate_expression", "get_env_variable",
             # Phase 3 — Animation + VEX + Materials
-            "set_keyframe", "set_keyframes", "delete_keyframe", "get_keyframes",
+            "set_keyframes", "delete_keyframe", "get_keyframes",
             "get_frame", "set_frame_range", "set_playback_range", "playbar_control",
             "create_wrangle", "set_wrangle_code", "get_wrangle_code",
             "create_vex_expression", "validate_vex",
@@ -475,7 +480,7 @@ class TestCommandDispatcher:
             "list_panes", "get_viewport_info", "set_viewport_camera",
             "set_viewport_display", "set_viewport_renderer",
             "frame_selection", "frame_all", "set_viewport_direction",
-            "capture_screenshot", "set_current_network",
+            "set_current_network",
             "list_render_nodes", "get_render_settings", "set_render_settings",
             "create_render_node", "start_render", "get_render_progress",
             # Phase 5 — COPs + CHOPs + Takes + Cache + HDA
@@ -493,6 +498,10 @@ class TestCommandDispatcher:
             "setup_pyro_sim", "setup_rbd_sim", "setup_flip_sim", "setup_vellum_sim",
             "create_material_workflow", "assign_material_workflow",
             "build_sop_chain", "setup_render",
+            # Undo / redo
+            "undo", "redo", "get_undo_history",
+            # Scene dossier
+            "get_scene_dossier",
         ]
         for cmd in expected:
             assert cmd in handlers, f"Handler not registered: {cmd}"

@@ -2,21 +2,6 @@
 import hou
 
 
-def set_keyframe(node_path, parm_name, frame, value):
-    """Set a keyframe on a parameter at a specific frame."""
-    node = hou.node(node_path)
-    if not node:
-        raise ValueError(f"Node not found: {node_path}")
-    parm = node.parm(parm_name)
-    if not parm:
-        raise ValueError(f"Parameter not found: {parm_name} on {node_path}")
-    key = hou.Keyframe()
-    key.setFrame(frame)
-    key.setValue(value)
-    parm.setKeyframe(key)
-    return {"path": node_path, "parm": parm_name, "frame": frame, "value": value}
-
-
 def set_keyframes(node_path, parm_name, keyframes):
     """Set multiple keyframes on a parameter.
 

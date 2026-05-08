@@ -14,7 +14,7 @@ from .handlers.scene import (
 )
 from .handlers.nodes import (
     create_node, modify_node, delete_node, get_node_info, set_material,
-    connect_nodes, disconnect_node_input, set_node_flags,
+    disconnect_node_input, set_node_flags,
     layout_children, set_node_color, set_expression, find_error_nodes,
     copy_node, move_node, rename_node, list_children, find_nodes,
     list_node_types, connect_nodes_batch, reorder_inputs,
@@ -24,12 +24,12 @@ from .handlers.context import (
     get_selection, set_selection,
 )
 from .handlers.parameters import (
-    get_parameter, set_parameter, set_parameters, get_parameter_schema,
+    get_parameter, set_parameters, get_parameter_schema,
     get_expression, revert_parameter, link_parameters, lock_parameter,
-    create_spare_parameter, create_spare_parameters,
+    create_spare_parameters,
 )
 from .handlers.animation import (
-    set_keyframe, set_keyframes, delete_keyframe, get_keyframes,
+    set_keyframes, delete_keyframe, get_keyframes,
     get_frame, set_frame_range, set_playback_range, playbar_control,
 )
 from .handlers.vex import (
@@ -78,7 +78,7 @@ from .handlers.dops import (
 from .handlers.viewport import (
     list_panes, get_viewport_info, set_viewport_camera, set_viewport_display,
     set_viewport_renderer, frame_selection, frame_all, set_viewport_direction,
-    capture_screenshot, set_current_network,
+    set_current_network,
 )
 from .handlers.rendering import (
     handle_render_single_view, handle_render_quad_view,
@@ -87,6 +87,9 @@ from .handlers.rendering import (
     create_render_node, start_render, get_render_progress,
     get_rop_output_path,
 )
+from .handlers.undo import undo, redo, get_undo_history
+from .handlers.dossier import get_scene_dossier
+from .handlers.node_types import describe_node_type
 from .event_collector import EventCollector
 
 EXTENSION_NAME = "Houdini MCP"
@@ -99,17 +102,17 @@ DEFAULT_PORT = int(os.environ.get("HOUDINIMCP_PORT", 9876))
 class HoudiniMCPServer:
     MUTATING_COMMANDS = {
         "create_node", "modify_node", "delete_node", "execute_code",
-        "set_material", "connect_nodes", "disconnect_node_input",
+        "set_material", "disconnect_node_input",
         "set_node_flags", "save_scene", "load_scene", "set_expression",
         "set_frame", "layout_children", "set_node_color",
         "pdg_cook", "pdg_dirty", "pdg_cancel",
         "lop_import", "hda_install", "hda_create", "batch",
-        "set_selection", "set_parameter", "set_parameters",
+        "set_selection", "set_parameters",
         "revert_parameter", "link_parameters", "lock_parameter",
-        "create_spare_parameter", "create_spare_parameters",
+        "create_spare_parameters",
         "copy_node", "move_node", "rename_node", "connect_nodes_batch",
         "reorder_inputs", "set_detail_attrib", "execute_hscript",
-        "set_keyframe", "set_keyframes", "delete_keyframe",
+        "set_keyframes", "delete_keyframe",
         "set_frame_range", "set_playback_range", "playbar_control",
         "create_wrangle", "set_wrangle_code", "create_vex_expression",
         "create_material_network", "assign_material",
@@ -266,7 +269,6 @@ class HoudiniMCPServer:
             "execute_code": execute_code,
             "set_material": set_material,
             "get_asset_lib_status": get_asset_lib_status,
-            "connect_nodes": connect_nodes,
             "disconnect_node_input": disconnect_node_input,
             "set_node_flags": set_node_flags,
             "save_scene": save_scene,
@@ -309,14 +311,12 @@ class HoudiniMCPServer:
             "set_selection": set_selection,
             # Parameters
             "get_parameter": get_parameter,
-            "set_parameter": set_parameter,
             "set_parameters": set_parameters,
             "get_parameter_schema": get_parameter_schema,
             "get_expression": get_expression,
             "revert_parameter": revert_parameter,
             "link_parameters": link_parameters,
             "lock_parameter": lock_parameter,
-            "create_spare_parameter": create_spare_parameter,
             "create_spare_parameters": create_spare_parameters,
             # Nodes expanded
             "copy_node": copy_node,
@@ -325,6 +325,7 @@ class HoudiniMCPServer:
             "list_children": list_children,
             "find_nodes": find_nodes,
             "list_node_types": list_node_types,
+            "describe_node_type": describe_node_type,
             "connect_nodes_batch": connect_nodes_batch,
             "reorder_inputs": reorder_inputs,
             # Geometry expanded
@@ -342,7 +343,6 @@ class HoudiniMCPServer:
             "evaluate_expression": evaluate_expression,
             "get_env_variable": get_env_variable,
             # Animation
-            "set_keyframe": set_keyframe,
             "set_keyframes": set_keyframes,
             "delete_keyframe": delete_keyframe,
             "get_keyframes": get_keyframes,
@@ -380,7 +380,6 @@ class HoudiniMCPServer:
             "frame_selection": frame_selection,
             "frame_all": frame_all,
             "set_viewport_direction": set_viewport_direction,
-            "capture_screenshot": capture_screenshot,
             "set_current_network": set_current_network,
             # Rendering expanded
             "list_render_nodes": list_render_nodes,
@@ -440,6 +439,12 @@ class HoudiniMCPServer:
             "assign_material_workflow": assign_material_workflow,
             "build_sop_chain": build_sop_chain,
             "setup_render": setup_render,
+            # Undo / redo
+            "undo": undo,
+            "redo": redo,
+            "get_undo_history": get_undo_history,
+            # Scene dossier
+            "get_scene_dossier": get_scene_dossier,
         }
         if getattr(hou.session, "houdinimcp_use_assetlib", False):
             handlers.update({

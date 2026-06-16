@@ -28,6 +28,22 @@ Hard-won lessons from real production use of the Houdini MCP. Organized by conte
 - [SOPs / File Cache](#sops--file-cache)
   - [parm.set() Silently Ignored When Expression Active](#parmset-silently-ignored-when-expression-active)
   - [hbatch render Only Works with ROPs, Not SOPs](#hbatch-render-only-works-with-rops-not-sops)
+- [DOPs / Vellum (Cloth & Hair)](#dops--vellum-cloth--hair)
+  - [Detect explosions with the bounding box](#detect-explosions-with-the-bounding-box-not-the-error-stream)
+  - [Convert PolySoup and NURBS first (camelCase)](#input-topology-must-be-poly--convert-polysoup-and-nurbs-first-camelcase)
+  - [Defaults leave pscale/mass = 0](#vellumconstraints-defaults-leave-pscalemass--0-zero-radius-collision)
+  - [Colliders need an explicit pscale](#colliders-need-an-explicit-pscale-or-vellum-inflates-them-hugely)
+  - [Hair self-collision explodes by default](#hair-self-collision-explodes-by-default-cloth-self-collision-is-fine)
+  - [vellumconstraints has two outputs](#vellumconstraints-has-two-outputs--wire-both-in-order)
+  - [substeps defaults to 1](#substeps-defaults-to-1--far-too-low)
+  - [Bend constraint locks in rest-pose folds](#the-bend-constraint-locks-in-the-rest-poses-folds-forever)
+  - [Collider crop must be a stable point group](#collider-crop-must-be-a-stable-point-group-constant-topology)
+  - [Fuse tol3d for thin/folded cloth](#fuse-tol3d-for-thinfolded-cloth-must-be-far-below-the-mesh-edge-length)
+  - [Remesh "doing nothing" = broken input](#remesh-doing-nothing-means-the-input-mesh-is-broken)
+  - ["Head inside body" collider](#head-inside-body--collider-shape-changes-the-result-vellum-collision-is-not-additive)
+  - [Strip Vellum internals before ABC export](#strip-vellums-internal-attributes-before-abc-export)
+  - [Vellum-session VEX/wrangle gotchas](#vellum-session-vexwrangle-gotchas)
+  - [MCP-specific Vellum traps](#mcp-specific-vellum-traps)
 - [ROPs / Rendering](#rops--rendering)
   - [OpenGL ROP picture Defaults to Literal "ip"](#opengl-rop-picture-defaults-to-literal-ip-mplay-not-a-file-path)
   - [Unsaved HIP Resolves $HIP to Install Dir](#unsaved-hip-resolves-hip-to-the-houdini-install-directory)
@@ -421,6 +437,196 @@ node.parm("execute").pressButton()
 ```
 
 `pressButton()` is synchronous in hython — it blocks until all frames are written.
+
+---
+
+## DOPs / Vellum (Cloth & Hair)
+
+Vellum (cloth and hair) is the single biggest source of silent failures in this MCP. The
+solver almost never errors — it **explodes or does nothing** instead. These were collected
+over a multi-day, 60+-attempt hair-and-cloth production. Read this whole section before
+building a Vellum sim; most of these cost hours each to diagnose from scratch.
+
+> The meta-rule: **"no error" does NOT mean Vellum is happy.** It silently explodes on bad
+> input (NURBS curves, zero pscale, default mass) and silently no-ops on bad parameters.
+> Always verify with a real cook + a bounding-box check, never by "it ran without errors".
+
+### Detect explosions with the bounding box, not the error stream
+
+> Houdini 21.0
+
+A Vellum solve never raises on instability. Cook `solver.geometryAtFrame(f)` for a few
+frames and check the bbox. A stable sim stays near the rest bbox (sub-metre for a character
+groom/garment); an explosion blows it to tens of metres. The solver caches per-frame, so
+re-reading already-solved frames is instant.
+
+**Nuance:** bbox-stable but high *local* bend angle is visually fine (constraints absorbing
+stress). Only a whole-curve bbox blow-up (metres) is a real explosion.
+
+### Input topology must be Poly — convert PolySoup and NURBS first (camelCase)
+
+> Houdini 21.0
+
+Vellum constraint generation expects **polygon** geometry. Two silent traps:
+
+- **Alembic meshes import as a single `PolySoup` primitive.** Collision needs real polys.
+- **NURBS curves** (from Blender→ABC grooms, or even re-introduced internally by Guide
+  Deform) make `vellumconstraints` emit invalid constraints — the sim runs and explodes
+  within ~2 frames (bbox ±60 m), no error.
+
+Insert a `convert` SOP before any Vellum SOP:
+```python
+# PolySoup mesh collider
+conv.parm("fromtype").set("polySoup");  conv.parm("totype").set("poly")
+# NURBS hair curves
+conv.parm("fromtype").set("nurbCurve");  conv.parm("totype").set("poly")
+```
+**`convert` `fromtype` menu values are camelCase** — `polySoup`, `nurbCurve`, `bezCurve`,
+`nurbSurf`, `bezSurf`, `tristrip`, `trifan`. Lowercase/snake_case fails with "Invalid menu
+item". (NURBS→Poly resamples, e.g. 8 CVs → ~36 points; that is normal.)
+
+### vellumconstraints defaults leave pscale/mass = 0 (zero-radius collision)
+
+> Houdini 21.0
+
+`vellumconstraints` defaults `dothickness` and `domass` to **off** for both hair and cloth.
+With them off, per-point `pscale` and `mass` are never written → collision shell has zero
+radius → unstable sim even with self-collision disabled. The "Thickness" field shows a value,
+but the toggle in front of it gates whether it applies at all.
+
+**Always set them explicitly.** Example (hair): `dothickness=1, thickness=0.005` (5 mm),
+`domass=1, mass=0.01`. Cloth: `dothickness=2` (Calculate Uniform), `domass=3` (Calculate
+Varying), `density=…`. After setting, confirm the output carries `pscale` + `mass`.
+
+### Colliders need an explicit pscale or Vellum inflates them hugely
+
+> Houdini 21.0
+
+A collider mesh with no `pscale` attribute makes Vellum use an oversized internal default —
+the collider effectively "inflates" and shoves the sim outward (hair stretches to infinity
+on frame 2). Pre-attach a small shell with an attribwrangle (class=2 Points):
+```vex
+f@pscale = 0.001;   // 1 mm collision shell
+```
+
+### Hair self-collision explodes by default; cloth self-collision is fine
+
+> Houdini 21.0
+
+`vellumsolver.doselfcollisions = 1` by default. For **hair**, long strands collide with
+neighbours before constraints settle → explosion in the first 2–3 frames. Set
+`doselfcollisions = 0` for the initial smoke test; only re-enable later with much higher
+`substeps`/`collisionsiter`. For **cloth** this trap does NOT carry over — self-collision can
+stay ON (needed for folds/skirts) and does not explode.
+
+### vellumconstraints has two outputs — wire both, in order
+
+> Houdini 21.0
+
+Output 0 = simulation geometry; output 1 = **constraint geometry** (looks empty: `prims=0`,
+prim-attribs only — it is metadata). Both feed `vellumsolver` inputs 0 and 1 respectively.
+Wiring them in the wrong order silently fails.
+
+### substeps defaults to 1 — far too low
+
+> Houdini 21.0
+
+`vellumsolver` default `substeps=1` is too low for any real motion. Use ~10 for vigorous
+animation. `dosubstep=0` uses the local `substeps`; `dosubstep=1` defers to Vellum global.
+
+### The bend constraint locks in the rest pose's folds forever
+
+> Houdini 21.0
+
+Vellum's hair bend constraint reads each segment's **rest-pose angle as its target**. If the
+source groom has a 120° hairpin fold, the constraint keeps it at 120° forever — it will not
+straighten, and raising `bendstiffness` only locks the fold harder. Zig-zag artifacts in a
+sim are usually **source-data defects**, not solver instability. Fix the groom *before*
+Vellum (smooth/resample at the groom level), don't try to fix it with solver settings.
+
+### Collider crop must be a STABLE point group (constant topology)
+
+> Houdini 21.0
+
+PBD (and the Trail SOP for velocity) require the collider's point count/topology to be
+**identical every frame** — they need the previous frame's points. A naïve per-frame position
+test (e.g. `@P.y > 1.52`) lets different points cross the threshold as the body moves →
+topology changes per frame → breaks velocity/CCD. Instead classify points by their
+**frame-1** position: feed a TimeShift-locked-to-frame-1 copy as input 1 to a wrangle and
+test `point(1,"P",@ptnum)`, then blast the stable complement once.
+
+### Fuse tol3d for thin/folded cloth must be far below the mesh edge length
+
+> Houdini 21.0
+
+Welding coincident garment seams with a "safe" few-mm Fuse `tol3d` **catastrophically merges
+folded fabric layers** (which sit <1 mm apart) and destroys the mesh — silently. Use a
+tolerance that only catches truly-coincident seam points (e.g. 0.05 mm), far below the mesh's
+own edge length. The Fuse UI clamps `tol3d` min to 0.001; set lower via Python:
+`node.parm("tol3d").set(0.00005)`.
+
+### Remesh "doing nothing" means the input mesh is broken
+
+> Houdini 21.0
+
+If Remesh returns ~the same prim count as its input and seems to ignore Target Size, suspect
+a **self-overlapping / degenerate input** (e.g. an over-fused mesh), not the Remesh parms.
+A valid mesh remeshes correctly; a degenerate one can't be remeshed and near-passes-through.
+
+### "Head inside body" — collider shape changes the result; Vellum collision is not additive
+
+> Houdini 21.0
+
+A full-body collider that *includes* the head behaves very differently from an isolated
+head-dome collider, even though both contain the same head surface. Vellum collision response
+is not simply additive — a large contiguous collider can fluff/explode a groom that a small
+isolated one handles cleanly. Corollary: **a config that failed with bad input may succeed
+once an unrelated root cause is fixed** — clean source hair made a previously-exploding
+full-body collider the best option. Don't permanently rule a setup out after one failure.
+
+### Strip Vellum's internal attributes before ABC export
+
+> Houdini 21.0
+
+Vellum output carries 30+ solver internals (`target_pt`, `gluetoanimation`, `hitnml`,
+`orientlast`, `pprevious`, `dopobject`, …) that bloat the cache and mean nothing downstream.
+Insert `attribdelete` before the ROP: `ptdel="* ^P"`, `primdel="*"`, `dtldel="* ^width"`
+(keep `width` for hair). Cut one export from ~30 MB to ~5 MB.
+
+### Vellum-session VEX/wrangle gotchas
+
+> Houdini 21.0
+
+- **attribwrangle `class` enum is `(detail, primitive, point, vertex, number) = 0,1,2,3,4`.**
+  `class=2` is Point; `class=1` is **Primitive**, not Point; default `0` is Detail (runs
+  once). A wrong class cooks fine and writes zero attributes/groups, no error. Verify with
+  `node.parm('class').parmTemplate().menuItems()`.
+- **`setpointgroup()` VEX appears broken in modern point wrangles** — use `i@group_name = 1;`
+  instead, which always works.
+- **`point()` is an ambiguous overload — subscripting `.y` fails to compile** ("Ambiguous call
+  to function point()"). Assign to a typed `vector` first:
+  `vector p = point(1,"P",@ptnum); float y = p.y;`
+- **TimeShift/Trail `frame` parm keeps its `$F` expression after `.set(1)`** — the value
+  *reads* as 1 but the expression is still attached, so it tracks the playbar. Use
+  `parm.deleteAllKeyframes(); parm.set(1)` and confirm `parm.rawValue() == '1'`. (Same root
+  cause as the SOPs "parm.set() silently ignored" entry.) Also: **don't use `Pref` from a
+  Blender Alembic for the rest pose** — Houdini's ABC loader leaves custom vector attribs in
+  the source (Z-up) axis while rotating `P`/`N` to Y-up. Use a frame-1 TimeShift instead.
+
+### MCP-specific Vellum traps
+
+> Houdini 21.0
+
+- **A long solve/cook that exceeds the MCP timeout is NOT a failure.** The cook keeps running
+  inside Houdini. Do not retry in a loop (that can crash the plugin) — wait, then poll the
+  **output file on disk** with a shell `ls` (zero MCP contact); `ping` returns instantly once
+  Houdini is free. See also [Connection Discipline](#connection-discipline).
+- **`create_node(node_type="null")` fails** — the string `"null"` is coerced to JSON
+  `null`/`None`. Create null nodes via `build_sop_chain` or `execute_houdini_code`
+  (`parent.createNode("null", name)`) instead.
+- **`set_parameters` reports success even when the value didn't change.** If the new value
+  equals the current one it returns "old: X, new: X" with no flag — verify dependent state
+  with an actual cook, not the tool's return.
 
 ---
 

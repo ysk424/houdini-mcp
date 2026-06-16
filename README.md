@@ -3,15 +3,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/kleer001/houdini-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/kleer001/houdini-mcp?color=blue" alt="License: MIT"/></a>
+  <a href="https://github.com/ysk424/houdini-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ysk424/houdini-mcp?color=blue" alt="License: MIT"/></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white" alt="Python 3.10+"/></a>
   <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-compatible-green?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6Ii8+PC9zdmc+" alt="MCP Compatible"/></a>
   <a href="https://www.sidefx.com/"><img src="https://img.shields.io/badge/Houdini-21.0-orange?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiLz48L3N2Zz4=&logoColor=white" alt="Houdini 21.0"/></a>
-  <a href="https://github.com/kleer001/houdini-mcp/commits/main"><img src="https://img.shields.io/github/last-commit/kleer001/houdini-mcp" alt="Last Commit"/></a>
-  <a href="https://github.com/kleer001/houdini-mcp/issues"><img src="https://img.shields.io/github/issues/kleer001/houdini-mcp" alt="Issues"/></a>
-  <a href="https://github.com/kleer001/houdini-mcp/network/members"><img src="https://img.shields.io/github/forks/kleer001/houdini-mcp?style=social" alt="Forks"/></a>
-  <a href="https://github.com/kleer001/houdini-mcp/watchers"><img src="https://img.shields.io/github/watchers/kleer001/houdini-mcp?style=social" alt="Watchers"/></a>
-  <a href="https://github.com/kleer001/houdini-mcp/stargazers"><img src="https://img.shields.io/github/stars/kleer001/houdini-mcp?style=social" alt="GitHub Stars"/></a>
+  <a href="https://github.com/ysk424/houdini-mcp/commits/main"><img src="https://img.shields.io/github/last-commit/ysk424/houdini-mcp" alt="Last Commit"/></a>
+  <a href="https://github.com/ysk424/houdini-mcp/issues"><img src="https://img.shields.io/github/issues/ysk424/houdini-mcp" alt="Issues"/></a>
+  <a href="https://github.com/ysk424/houdini-mcp/network/members"><img src="https://img.shields.io/github/forks/ysk424/houdini-mcp?style=social" alt="Forks"/></a>
+  <a href="https://github.com/ysk424/houdini-mcp/watchers"><img src="https://img.shields.io/github/watchers/ysk424/houdini-mcp?style=social" alt="Watchers"/></a>
+  <a href="https://github.com/ysk424/houdini-mcp/stargazers"><img src="https://img.shields.io/github/stars/ysk424/houdini-mcp?style=social" alt="GitHub Stars"/></a>
 </p>
 
 <p align="center">
@@ -32,12 +32,12 @@ Control **SideFX Houdini** from **Claude** using the **Model Context Protocol**.
 
 **Linux / macOS:**
 ```bash
-curl -sSL https://raw.githubusercontent.com/kleer001/houdini-mcp/main/bootstrap.sh | bash
+curl -sSL https://raw.githubusercontent.com/ysk424/houdini-mcp/main/bootstrap.sh | bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-powershell -c "irm https://raw.githubusercontent.com/kleer001/houdini-mcp/main/bootstrap.bat -OutFile bootstrap.bat; .\bootstrap.bat"
+powershell -c "irm https://raw.githubusercontent.com/ysk424/houdini-mcp/main/bootstrap.bat -OutFile bootstrap.bat; .\bootstrap.bat"
 ```
 
 The bootstrap script clones the repo, installs [uv](https://docs.astral.sh/uv/), creates a venv, installs deps, sets up the Houdini plugin, optionally downloads offline docs, and configures your MCP client. Re-run from inside the repo at any time — it's idempotent. Full install is ~1 GB (mostly the documentation corpus).
@@ -504,7 +504,7 @@ Every entry follows the same format: **what we tried, what surprised us, and wha
 
 This file is baked into Claude's context, so the AI builds on previous experience instead of starting from scratch. The more you use HoudiniMCP, the smarter it gets.
 
-**Got recipes to share?** As you work with HoudiniMCP, your AI will add entries to its own `BEST_PRACTICES.md`. If you've accumulated useful ones, [open an issue](https://github.com/kleer001/houdini-mcp/issues/new?labels=best-practice&title=Best+Practices+Contribution&body=Paste+your+BEST_PRACTICES.md+contents+below%0A%0A---%0A%0A) and paste your file — we'll merge the good stuff in for everyone.
+**Got recipes to share?** As you work with HoudiniMCP, your AI will add entries to its own `BEST_PRACTICES.md`. If you've accumulated useful ones, [open an issue](https://github.com/ysk424/houdini-mcp/issues/new?labels=best-practice&title=Best+Practices+Contribution&body=Paste+your+BEST_PRACTICES.md+contents+below%0A%0A---%0A%0A) and paste your file — we'll merge the good stuff in for everyone.
 
 ## Under the Hood
 
@@ -515,12 +515,31 @@ This file is baked into Claude's context, so the AI builds on previous experienc
 - **Undo groups** wrap all mutating commands, dangerous code patterns blocked by default
 - **256 tests**, all run without a Houdini instance
 
+## What this fork adds
+
+On top of [kleer001/houdini-mcp](https://github.com/kleer001/houdini-mcp), this fork:
+
+- **Concurrent client connections** — the Houdini-side TCP server accepts multiple clients at once
+- **`screenshot_viewport` tool** — capture the current viewport directly
+- **New handlers** — scene dossier, node-type introspection, and undo/redo, plus handler refactors and expanded tests
+- **Enriched tool docstrings** — generated from the descriptions registry
+- **Vellum (cloth & hair) best practices** — a new section in [`BEST_PRACTICES.md`](BEST_PRACTICES.md) covering the silent-failure landmines from a 60+-attempt production sim
+
 ## Acknowledgements
+
+This repository is a fork of [kleer001/houdini-mcp](https://github.com/kleer001/houdini-mcp)
+by kleer001, which is itself derived from the original
+[HoudiniMCP](https://github.com/capoomgit/houdini-mcp) by Capoom (MIT). The bulk of the
+current feature set — the 166-tool surface, the BM25 docs engine, the cpio `.hip` parser,
+the event system — comes from kleer001's work. This fork keeps all of it and adds the
+changes listed under [What this fork adds](#what-this-fork-adds). The original copyright is
+retained in [`LICENSE`](LICENSE); this fork is published under the same MIT license.
 
 HoudiniMCP builds on the work of several open-source projects:
 
+- [kleer001/houdini-mcp](https://github.com/kleer001/houdini-mcp) by kleer001 — **direct upstream** of this fork; the current full-featured implementation
 - [blender-mcp](https://github.com/ahujasid/blender-mcp) by ahujasid — architectural inspiration (MCP bridge + TCP socket pattern)
-- [capoomgit/houdini-mcp](https://github.com/capoomgit/houdini-mcp) by capoomgit — first full-featured Houdini MCP implementation
+- [capoomgit/houdini-mcp](https://github.com/capoomgit/houdini-mcp) by Capoom — original HoudiniMCP and the retained MIT copyright holder
 - [eetumartola/houdini-mcp](https://github.com/eetumartola/houdini-mcp) by eetumartola — early Houdini MCP implementation
 - [Houdini21MCP](https://github.com/orrzxz/Houdini21MCP) by orrzxz — documentation search engine
 - [fxhoudinimcp](https://github.com/healkeiser/fxhoudinimcp) by healkeiser — comprehensive Houdini MCP with 167 tools across 19 categories (MIT license)

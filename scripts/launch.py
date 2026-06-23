@@ -30,6 +30,15 @@ def find_houdini():
     candidates = []
 
     if system == "Windows":
+        # Prefer Steam Houdini Indie when installed because it has a distinct
+        # executable and licensing path from the SideFX-installed build.
+        candidates.append(
+            os.path.join(
+                os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+                "Steam", "steamapps", "common", "Houdini Indie", "bin",
+                "hindie.steam.exe",
+            )
+        )
         # Check common Windows install locations
         for base in [r"C:\Program Files\Side Effects Software", r"C:\Program Files (x86)\Side Effects Software"]:
             if os.path.isdir(base):

@@ -12,6 +12,7 @@ Usage:
     python install.py --houdini-version 20.5  # Specify Houdini version
     python install.py --prefs-dir /path/to/houdiniX.Y  # Explicit prefs directory
     python install.py --claude-code      # Also auto-allow Houdini MCP tools in Claude Code
+    python install.py --codex            # Also register Houdini MCP in Codex
     python install.py --dry-run          # Show what would be done without doing it
 """
 import os
@@ -21,6 +22,7 @@ import json
 import argparse
 import platform
 import glob
+import re
 
 
 PLUGIN_FILES = [
@@ -217,7 +219,7 @@ def install(prefs_dir, source_dir, dry_run=False):
             f.write(import_line + "\n")
         print(f"  Added auto-start to {pythonrc_path}")
 
-    print("\nDone!" if not dry_run else "\nDry run complete — no files were changed.")
+    print("\nDone!" if not dry_run else "\nDry run complete - no files were changed.")
     if not dry_run:
         print("Restart Houdini for changes to take effect.")
         print("The MCP server will auto-start when Houdini loads the plugin.")
@@ -229,6 +231,8 @@ def main():
     parser.add_argument("--prefs-dir", default=None, help="Explicit Houdini preferences directory")
     parser.add_argument("--claude-code", action="store_true",
                         help="Auto-allow Houdini MCP tools in Claude Code (no per-tool prompts)")
+    parser.add_argument("--codex", action="store_true",
+                        help="Register the Houdini MCP bridge in Codex config.toml")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without doing it")
     args = parser.parse_args()
 
@@ -250,6 +254,8 @@ def main():
 
     if args.claude_code:
         configure_claude_code(args.dry_run)
+    if args.codex:
+        configure_codex(source_dir, args.dry_run)
 
 
 def configure_claude_code(dry_run=False):
@@ -294,6 +300,55 @@ def configure_claude_code(dry_run=False):
     for permission in added:
         print(f"  Claude Code: Added '{permission}' to {settings_file}")
     print("Houdini MCP tools and mplay will no longer require per-call approval.")
+
+
+def configure_codex(source_dir, dry_run=False):
+    """Register the bridge in Codex's TOML configuration."""
+    config_dir = os.path.join(os.path.expanduser("~"), ".codex")
+    config_file = os.path.join(config_dir, "config.toml")
+    bridge_script = os.path.join(source_dir, "houdini_mcp_server.py")
+    if platform.system() == "Windows":
+        venv_python = os.path.join(source_dir, ".venv", "Scripts", "python.exe")
+    else:
+        venv_python = os.path.join(source_dir, ".venv", "bin", "python")
+    bridge_python = venv_python if os.path.isfile(venv_python) else sys.executable
+
+    def toml_literal(value):
+        return "'" + value.replace("'", "''") + "'"
+
+    block = (
+        "[mcp_servers.houdini]\n"
+        f"command = {toml_literal(bridge_python)}\n"
+        f"args = [{json.dumps(bridge_script)}]\n"
+    )
+
+    existing = ""
+    if os.path.isfile(config_file):
+        with open(config_file, encoding="utf-8") as f:
+            existing = f.read()
+
+    section_pattern = re.compile(
+        r"(?ms)^\[mcp_servers\.houdini\]\n.*?(?=^\[|\Z)"
+    )
+    if section_pattern.search(existing):
+        updated = section_pattern.sub(block + "\n", existing, count=1)
+    else:
+        separator = "" if not existing or existing.endswith("\n\n") else "\n"
+        updated = existing + separator + block
+
+    if updated == existing:
+        print(f"\nCodex: Houdini MCP is already registered in {config_file}")
+        return
+    if dry_run:
+        print(f"\n  WOULD REGISTER Houdini MCP in {config_file}:")
+        print(block)
+        return
+
+    os.makedirs(config_dir, exist_ok=True)
+    with open(config_file, "w", encoding="utf-8", newline="\n") as f:
+        f.write(updated)
+    print(f"\nCodex: Registered Houdini MCP in {config_file}")
+    print("Restart Codex to load the Houdini MCP tools.")
 
 
 if __name__ == "__main__":

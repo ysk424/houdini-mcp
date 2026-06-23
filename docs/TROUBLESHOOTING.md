@@ -127,6 +127,25 @@ Check the Houdini console for `Failed to start server:` messages. Usually means:
 
 Fix: restart Houdini, or change the port via `HOUDINIMCP_PORT` environment variable.
 
+If a previous start attempt left a stopped server object in `hou.session`,
+older builds could incorrectly report that the server was already running.
+Reinstall the current plugin. `start_server()` now validates both
+`server.running` and the listening socket, and replaces stale instances.
+
+### Houdini listens on 9876 but Codex has no Houdini tools
+
+The Houdini TCP plugin and the Codex MCP bridge are separate layers. A working
+port 9876 does not register tools in Codex by itself.
+
+Run:
+
+```bash
+python scripts/install.py --houdini-version 21.0 --codex
+```
+
+Then restart Codex. Confirm that `~/.codex/config.toml` contains an
+`[mcp_servers.houdini]` section.
+
 ### After upgrading Houdini, the plugin stops working
 
 Each Houdini version has its own preferences directory (`houdini20.5/`, `houdini21.0/`, etc.). After upgrading, re-run the installer targeting the new version:

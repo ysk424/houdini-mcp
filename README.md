@@ -97,6 +97,19 @@ claude mcp add --transport stdio houdini -- uv --directory /path/to/houdini-mcp 
 }
 ```
 
+### Codex
+
+Register the bridge in `~/.codex/config.toml` while installing the Houdini
+plugin:
+
+```bash
+python scripts/install.py --houdini-version 21.0 --codex
+```
+
+Restart Codex after installation so the `mcp__houdini__*` tools are loaded.
+The installer uses the repository virtual environment's Python executable,
+avoiding reliance on `uv` being present in Codex's startup `PATH`.
+
 **ChatGPT Desktop:** ChatGPT only supports remote (HTTP) MCP servers, not local stdio. You'll need to wrap the bridge in an HTTP transport and expose it via a tunnel:
 
 ```bash

@@ -3,15 +3,33 @@ import hou
 from .server import HoudiniMCPServer
 
 def start_server():
-    if not hasattr(hou.session, "houdinimcp_server") or hou.session.houdinimcp_server is None:
-        hou.session.houdinimcp_server = HoudiniMCPServer()
-        hou.session.houdinimcp_server.start()
-    else:
+    existing = getattr(hou.session, "houdinimcp_server", None)
+    if (
+        existing is not None
+        and getattr(existing, "running", False)
+        and getattr(existing, "socket", None) is not None
+    ):
         print("Houdini MCP Server is already running.")
+        return existing
+
+    if existing is not None:
+        try:
+            existing.stop()
+        except Exception:
+            pass
+
+    server = HoudiniMCPServer()
+    hou.session.houdinimcp_server = server
+    server.start()
+    if not server.running or server.socket is None:
+        hou.session.houdinimcp_server = None
+        return None
+    return server
 
 def stop_server():
-    if hasattr(hou.session, "houdinimcp_server") and hou.session.houdinimcp_server:
-        hou.session.houdinimcp_server.stop()
+    server = getattr(hou.session, "houdinimcp_server", None)
+    if server is not None:
+        server.stop()
         hou.session.houdinimcp_server = None
     else:
         print("Houdini MCP Server is not running.")

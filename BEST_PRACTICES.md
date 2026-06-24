@@ -28,6 +28,7 @@ Hard-won lessons from real production use of the Houdini MCP. Organized by conte
 - [SOPs / File Cache](#sops--file-cache)
   - [parm.set() Silently Ignored When Expression Active](#parmset-silently-ignored-when-expression-active)
   - [hbatch render Only Works with ROPs, Not SOPs](#hbatch-render-only-works-with-rops-not-sops)
+  - [LOP Import Is Not a Skinned Body Cache](#lop-import-is-not-a-skinned-body-cache)
 - [DOPs / Vellum (Cloth & Hair)](#dops--vellum-cloth--hair)
   - [Detect explosions with the bounding box](#detect-explosions-with-the-bounding-box-not-the-error-stream)
   - [Convert PolySoup and NURBS first (camelCase)](#input-topology-must-be-poly--convert-polysoup-and-nurbs-first-camelcase)
@@ -60,6 +61,7 @@ Hard-won lessons from real production use of the Houdini MCP. Organized by conte
   - [Node Inspection Caveats](#node-inspection-caveats)
   - [HDA Script Sync](#hda-script-sync)
   - [Diagnostics Workflow](#diagnostics-workflow)
+  - [Use uiready.py for GUI Auto-Start](#use-uireadypy-for-gui-auto-start)
 
 ---
 
@@ -438,6 +440,20 @@ node.parm("execute").pressButton()
 
 `pressButton()` is synchronous in hython — it blocks until all frames are written.
 
+### LOP Import Is Not a Skinned Body Cache
+
+> Houdini 21.0.631
+
+**Anti-pattern:** Used `lopimport::2.0` with `timesample=animated` and
+`importframe=$FF` to pull a Solaris USD character body mesh into SOPs, then
+exported that as the Marvelous Designer avatar Alembic. The mesh imported, but
+sampled point positions were identical at frames 1, 25, and 250.
+
+**Fix:** Import the USD skin with `kinefx::usdskinimport`, import bind/current
+poses with `kinefx::usdanimimport`, then run `kinefx::jointdeform`. Export the
+Joint Deform result with a `rop_alembic` SOP. See
+`docs/WORKFLOW_HOUDINI_BODY_ALEMBIC_FOR_MD.md`.
+
 ---
 
 ## DOPs / Vellum (Cloth & Hair)
@@ -717,7 +733,7 @@ Also: `outputToMPlay(False)` is required to avoid flashing the MPlay window, and
 
 The Toggle Server shelf button calls `stop()` / `start()` on the running `HoudiniMCPServer` instance. This re-binds the TCP listener but does **not** reload the `houdinimcp` Python modules — the running instance's class still references the imports captured at original load time. New commands added to the dispatcher after deploying updated handler files will return `Unknown command type: <name>` until Houdini is fully restarted.
 
-**Fix (clean):** Restart Houdini after `python scripts/install.py`. The plugin auto-imports via `pythonrc.py` and picks up the new code.
+**Fix (clean):** Restart Houdini after `python scripts/install.py`. The plugin auto-imports via `python3.11libs/uiready.py` and picks up the new code.
 
 **Fix (no-restart, runtime patch):** From an MCP `execute_houdini_code` call, `importlib.reload` the affected modules then monkey-patch the running server's class to inject the new handler:
 
@@ -791,3 +807,20 @@ When something looks wrong in a COP network, use `execute_houdini_code` to inspe
 4. **Compare pixel values** — `layer.allBufferElements()` + numpy at specific coordinates. Don't trust visual inspection alone.
 5. **Compare layer metadata** — `outputNames()`, `channelCount()`, `attributes()`, `typeInfo()` between working and broken paths.
 6. **Use a switch node for A/B testing** — insert a switch to isolate which part of the chain causes the issue.
+
+### Use uiready.py for GUI Auto-Start
+
+> Houdini 21.0.729
+
+**Anti-pattern:** Installed the GUI auto-start hook into `scripts/pythonrc.py`.
+Houdini 21 did not execute that file, so port 9876 was not listening after
+startup. During diagnosis, adding duplicate hooks plus repeated delayed timers
+caused several "Houdini MCP Server is already running" messages.
+
+**Diagnosis:** Manual shelf restart worked because it imported/started the plugin
+after the UI was already up. The real issue was the startup hook location, not the
+TCP server itself.
+
+**Fix:** Install a single hook at `$HOUDINI_USER_PREF_DIR/python3.11libs/uiready.py`
+containing only `import houdinimcp`. Do not also install `scripts/pythonrc.py` or
+`scripts/python/uiready.py` hooks.

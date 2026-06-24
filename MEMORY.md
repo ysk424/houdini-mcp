@@ -75,6 +75,35 @@ Codexへツールを反映するにはCodexの再起動が必要。
 - Steam版Houdini検出: 成功
 - 全pytest: `319 passed, 13 skipped`
 
+## 2026-06-24 起動直後に反応しない問題
+
+原因:
+
+- インストーラーが `Documents\houdini21.0\scripts\pythonrc.py` に
+  `import houdinimcp` を書いていたが、Houdini 21 GUI起動ではこの場所が実行されて
+  いなかった。
+- シェルフ/操作パネルからStop/Startすると接続できたのは、UI起動後に手動で
+  `start_server()` が走るため。
+- 診断中に `scripts/python/uiready.py` と複数タイマーも試したが、これは
+  "Houdini MCP Server is already running." を複数回出すだけなので撤去した。
+
+修正:
+
+- 自動起動は1箇所のみ:
+  `C:\Users\azoo\Documents\houdini21.0\python3.11libs\uiready.py`
+- 内容は1行だけ:
+  `import houdinimcp  # Auto-start HoudiniMCP server`
+- `src/houdinimcp/__init__.py` はimport時に `initialize_plugin()` ->
+  `start_server()` を1回だけ呼ぶ。
+- `scripts/install.py` は今後 `python3.11libs\uiready.py` だけを作り、
+  legacyな `scripts\pythonrc.py` / `scripts\python\uiready.py` の
+  HoudiniMCP auto-start行を掃除する。
+
+検証:
+
+- 起動後のMCP `ping`: 成功
+- `uv run pytest tests\test_plugin_startup.py`: `4 passed`
+
 ## 再起動後の確認
 
 1. Codexを再起動する
@@ -107,4 +136,3 @@ Codexへツールを反映するにはCodexの再起動が必要。
 `houdini\yoko_hair_sim2_v003_RC2.hiplc`
 
 原型は変更せず、WORK用HIPだけを編集・保存する。
-

@@ -58,7 +58,7 @@ python scripts/install.py --houdini-version 20.5
 python scripts/install.py --dry-run
 ```
 
-This copies plugin files to your Houdini preferences directory, creates a packages JSON for auto-loading, and adds a startup hook (`pythonrc.py`) so the MCP server starts automatically when Houdini opens.
+This copies plugin files to your Houdini preferences directory, creates a packages JSON for auto-loading, and adds a UI-ready startup hook (`python3.11libs/uiready.py`) so the MCP server starts automatically after Houdini's GUI is ready.
 
 #### 2. Install MCP Dependencies
 

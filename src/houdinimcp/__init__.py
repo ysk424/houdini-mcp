@@ -2,6 +2,7 @@ import os
 import hou
 from .server import HoudiniMCPServer
 
+
 def start_server():
     existing = getattr(hou.session, "houdinimcp_server", None)
     if (
@@ -34,14 +35,15 @@ def stop_server():
     else:
         print("Houdini MCP Server is not running.")
 
+
 # Optionally auto-start
 def initialize_plugin():
     # Set up default session toggles if desired
     if not hasattr(hou.session, "houdinimcp_use_assetlib"):
         hou.session.houdinimcp_use_assetlib = False
-    # Auto-start server if you want:
     start_server()
 
-# Auto-load on import (skipped for headless — managed by headless_server.py)
+# Auto-load on import (skipped for headless — managed by headless_server.py).
+# In GUI sessions the installer imports this from uiready.py, after the UI is up.
 if not os.environ.get("HOUDINIMCP_HEADLESS"):
     initialize_plugin()

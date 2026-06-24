@@ -98,11 +98,14 @@ This is normal. It means the MCP bridge closed its TCP connection (e.g., Claude 
 
 ### Plugin doesn't auto-start when Houdini opens
 
-The plugin auto-starts via two mechanisms: the installer adds `import houdinimcp` to `pythonrc.py` (runs at Houdini startup), and `houdinimcp/__init__.py` calls `initialize_plugin()` on import. If it's not loading:
+The plugin auto-starts when Houdini runs the UI-ready startup hook installed at
+`python3.11libs/uiready.py`. That hook imports `houdinimcp`, and
+`houdinimcp/__init__.py` calls `initialize_plugin()` on import. If it's not
+loading:
 
-1. Check that `pythonrc.py` contains the import line:
+1. Check that `uiready.py` contains the import line:
    ```bash
-   grep houdinimcp ~/houdiniX.Y/scripts/pythonrc.py
+   grep houdinimcp ~/houdiniX.Y/python3.11libs/uiready.py
    ```
    If missing, re-run `python scripts/install.py`.
 
@@ -115,6 +118,11 @@ The plugin auto-starts via two mechanisms: the installer adds `import houdinimcp
 
 4. Look for import errors in the Houdini console on startup. Common causes:
    - **Missing handler files** — if `handlers/` wasn't fully copied, you'll get `ImportError`. Re-run `python scripts/install.py`.
+
+5. Remove legacy duplicate startup hooks if they exist. Current installs should
+   use only `python3.11libs/uiready.py`; older experimental hooks under
+   `scripts/pythonrc.py` or `scripts/python/uiready.py` can cause duplicate
+   "already running" messages.
 
 **Still not working?** The MCP bridge can auto-launch a headless `hython` session as a fallback — see "Headless Mode" below.
 

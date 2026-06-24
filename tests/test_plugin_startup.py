@@ -23,7 +23,12 @@ class FakeServer:
         self.socket = None
 
 
-def load_plugin_init(monkeypatch):
+def load_plugin_init(
+    monkeypatch,
+    *,
+    headless=True,
+    start_immediate=False,
+):
     fake_hou = types.ModuleType("hou")
     fake_hou.session = types.SimpleNamespace()
     fake_package = types.ModuleType("houdinimcp")
@@ -34,7 +39,14 @@ def load_plugin_init(monkeypatch):
     monkeypatch.setitem(sys.modules, "hou", fake_hou)
     monkeypatch.setitem(sys.modules, "houdinimcp", fake_package)
     monkeypatch.setitem(sys.modules, "houdinimcp.server", fake_server_module)
-    monkeypatch.setenv("HOUDINIMCP_HEADLESS", "1")
+    if headless:
+        monkeypatch.setenv("HOUDINIMCP_HEADLESS", "1")
+    else:
+        monkeypatch.delenv("HOUDINIMCP_HEADLESS", raising=False)
+    if start_immediate:
+        monkeypatch.setenv("HOUDINIMCP_START_IMMEDIATE", "1")
+    else:
+        monkeypatch.delenv("HOUDINIMCP_START_IMMEDIATE", raising=False)
 
     path = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
@@ -77,3 +89,23 @@ def test_start_server_replaces_stale_server(monkeypatch):
     assert replacement.socket is not None
     assert stale.stop_calls == 1
     assert hou.session.houdinimcp_server is replacement
+
+
+def test_initialize_plugin_starts_once_from_uiready_import(monkeypatch):
+    FakeServer.instances.clear()
+
+    plugin, hou = load_plugin_init(monkeypatch, headless=False)
+
+    assert len(FakeServer.instances) == 1
+    assert hou.session.houdinimcp_server.running is True
+    assert hou.session.houdinimcp_server.socket is not None
+
+
+def test_initialize_plugin_can_start_immediately_for_headless_like_debug(monkeypatch):
+    FakeServer.instances.clear()
+
+    plugin, hou = load_plugin_init(monkeypatch, headless=True, start_immediate=True)
+    plugin.initialize_plugin()
+
+    assert len(FakeServer.instances) == 1
+    assert hou.session.houdinimcp_server.running is True

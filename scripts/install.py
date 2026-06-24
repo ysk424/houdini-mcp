@@ -197,27 +197,56 @@ def install(prefs_dir, source_dir, dry_run=False):
             f.write("\n")
         print(f"  Created MCP config: {mcp_config_path}")
 
-    # Create/update pythonrc.py so Houdini auto-imports the plugin at startup
-    scripts_dir = os.path.join(prefs_dir, "scripts")
-    pythonrc_path = os.path.join(scripts_dir, "pythonrc.py")
-    import_line = "import houdinimcp  # Auto-start HoudiniMCP server"
+    # Create/update uiready.py so Houdini auto-imports the plugin after the GUI is ready.
+    # pythonrc.py is too early for the QTimer-backed GUI server, and in Houdini 21 it is
+    # discovered from pythonX.Ylibs/pythonrc.py, not scripts/pythonrc.py.
+    startup_code = "import houdinimcp  # Auto-start HoudiniMCP server\n"
+    startup_targets = [
+        os.path.join(prefs_dir, "python3.11libs", "uiready.py"),
+    ]
+    legacy_startup_paths = [
+        os.path.join(prefs_dir, "scripts", "pythonrc.py"),
+        os.path.join(prefs_dir, "scripts", "python", "uiready.py"),
+    ]
+    for legacy_path in legacy_startup_paths:
+        if not os.path.isfile(legacy_path):
+            continue
+        with open(legacy_path, encoding="utf-8") as f:
+            legacy_content = f.read()
+        if "import houdinimcp" not in legacy_content:
+            continue
+        cleaned_lines = [
+            line for line in legacy_content.splitlines()
+            if "import houdinimcp" not in line
+            and "HOUDINIMCP_STARTUP_LOG" not in line
+        ]
+        cleaned = "\n".join(cleaned_lines).strip()
+        if dry_run:
+            print(f"  CLEAN legacy HoudiniMCP auto-start from {legacy_path}")
+        elif cleaned:
+            with open(legacy_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(cleaned + "\n")
+            print(f"  Removed legacy HoudiniMCP auto-start from {legacy_path}")
+        else:
+            os.remove(legacy_path)
+            print(f"  Removed legacy HoudiniMCP auto-start file {legacy_path}")
+    for startup_path in startup_targets:
+        existing_content = ""
+        if os.path.isfile(startup_path):
+            with open(startup_path, encoding="utf-8") as f:
+                existing_content = f.read()
 
-    existing_content = ""
-    if os.path.isfile(pythonrc_path):
-        with open(pythonrc_path) as f:
-            existing_content = f.read()
-
-    if "import houdinimcp" in existing_content:
-        print(f"  pythonrc.py already imports houdinimcp")
-    elif dry_run:
-        print(f"  APPEND '{import_line}' to {pythonrc_path}")
-    else:
-        os.makedirs(scripts_dir, exist_ok=True)
-        with open(pythonrc_path, "a") as f:
-            if existing_content and not existing_content.endswith("\n"):
-                f.write("\n")
-            f.write(import_line + "\n")
-        print(f"  Added auto-start to {pythonrc_path}")
+        if "import houdinimcp" in existing_content:
+            print(f"  {startup_path} already imports houdinimcp")
+        elif dry_run:
+            print(f"  APPEND auto-start import to {startup_path}")
+        else:
+            os.makedirs(os.path.dirname(startup_path), exist_ok=True)
+            with open(startup_path, "a", encoding="utf-8", newline="\n") as f:
+                if existing_content and not existing_content.endswith("\n"):
+                    f.write("\n")
+                f.write(startup_code)
+            print(f"  Added UI-ready auto-start to {startup_path}")
 
     print("\nDone!" if not dry_run else "\nDry run complete - no files were changed.")
     if not dry_run:
@@ -331,7 +360,7 @@ def configure_codex(source_dir, dry_run=False):
         r"(?ms)^\[mcp_servers\.houdini\]\n.*?(?=^\[|\Z)"
     )
     if section_pattern.search(existing):
-        updated = section_pattern.sub(block + "\n", existing, count=1)
+        updated = section_pattern.sub(lambda _match: block + "\n", existing, count=1)
     else:
         separator = "" if not existing or existing.endswith("\n\n") else "\n"
         updated = existing + separator + block

@@ -64,29 +64,6 @@ def setup_vellum_sim(source_path, sim_type="cloth", name="vellum_sim", parent_pa
     return {"geo": geo.path(), "constraints": constraints.path(), "solver": solver.path(), "type": sim_type}
 
 
-def create_material_workflow(name="mat_principled", parent_path="/mat", material_type="principledshader"):
-    """Create a material node in a material context."""
-    parent = hou.node(parent_path)
-    if not parent:
-        raise ValueError(f"Parent not found: {parent_path}")
-    mat = parent.createNode(material_type, node_name=name)
-    return {"path": mat.path(), "type": material_type}
-
-
-def assign_material_workflow(geo_path, material_path):
-    """Assign a material to a geometry node."""
-    geo = hou.node(geo_path)
-    if not geo:
-        raise ValueError(f"Geometry not found: {geo_path}")
-    mat = hou.node(material_path)
-    if not mat:
-        raise ValueError(f"Material not found: {material_path}")
-    parm = geo.parm("shop_materialpath")
-    if parm:
-        parm.set(material_path)
-    return {"geo": geo_path, "material": material_path, "assigned": True}
-
-
 def build_sop_chain(parent_path, nodes):
     """Build a chain of SOP nodes connected in sequence.
 

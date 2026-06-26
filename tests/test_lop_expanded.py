@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from houdinimcp.handlers.lop import (
     list_usd_prims, get_usd_attribute, get_usd_prim_stats,
     get_usd_composition, get_usd_variants, inspect_usd_layer,
-    create_lop_node, list_lights,
+    list_lights,
 )
 
 
@@ -191,12 +191,6 @@ class TestLopExpanded:
         sys.modules["hou"].node = lambda p: node if p == "/stage/lopnet1" else None
         result = inspect_usd_layer("/stage/lopnet1", 0)
         assert result["identifier"] == "test.usd"
-
-    def test_create_lop_node(self):
-        parent = MockLopNode("/stage/lopnet1")
-        sys.modules["hou"].node = lambda p: parent if p == "/stage/lopnet1" else None
-        result = create_lop_node("/stage/lopnet1", "xform", "myxform")
-        assert result["type"] == "xform"
 
     def test_list_lights(self):
         light = MockUsdPrim("/World/Light1", "DistantLight")

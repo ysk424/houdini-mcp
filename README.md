@@ -15,14 +15,14 @@
 </p>
 
 <p align="center">
-  <strong>166 MCP tools</strong> &middot; <strong>30,000+ searchable documents</strong> &middot; <strong>Bidirectional events</strong>
+  <strong>162 MCP tools</strong> &middot; <strong>30,000+ searchable documents</strong> &middot; <strong>Bidirectional events</strong>
 </p>
 
 ---
 
 Control **SideFX Houdini** from **Claude** using the **Model Context Protocol**. HoudiniMCP connects to your running Houdini instance — your license, your scene, your tools. The bridge talks to Houdini's Python API over a local TCP socket, so everything runs on your machine against your own installation. If no Houdini GUI is running, the bridge auto-launches a headless `hython` session so you can work without opening the UI.
 
-- **166 MCP tools** — nodes, rendering, geometry, PDG/TOPs, USD/Solaris, HDAs, scene management, parameters, animation, VEX, DOPs, viewport, COPs, CHOPs, takes, cache, workflows
+- **162 MCP tools** — nodes, rendering, geometry, PDG/TOPs, USD/Solaris, HDAs, scene management, parameters, animation, VEX, DOPs, viewport, COPs, CHOPs, takes, cache, workflows
 - **30,000+ searchable documents** — Houdini docs + patterns extracted from your Houdini install's example files
 - **Bidirectional event system** — Houdini pushes scene changes to Claude in real time
 
@@ -166,7 +166,7 @@ This enables the `search_docs` and `get_doc` tools — they work offline without
 
 ## What You Get
 
-HoudiniMCP exposes 166 tools, 8 resources, and 6 prompts over MCP, organized by domain: scene management, node operations, scene context, parameters, code execution, materials, animation, VEX, geometry, rendering, viewport, DOPs, PDG/TOPs, USD/Solaris, COPs, CHOPs, takes, cache, HDA management, batch operations, workflow templates, events, and documentation search. The bridge runs as a separate process (`houdini_mcp_server.py`) and talks to the Houdini plugin over TCP.
+HoudiniMCP exposes 162 tools, 8 resources, and 6 prompts over MCP, organized by domain: scene management, node operations, scene context, parameters, code execution, materials, animation, VEX, geometry, rendering, viewport, DOPs, PDG/TOPs, Solaris, COPs, CHOPs, takes, cache, HDA management, batch operations, workflow templates, events, and documentation search. The bridge runs as a separate process (`houdini_mcp_server.py`) and talks to the Houdini plugin over TCP.
 
 ```
 Claude (MCP stdio) → houdini_mcp_server.py (Bridge) → TCP:9876 → server.py (Houdini Plugin) → hou API
@@ -177,7 +177,7 @@ No Houdini running? Bridge auto-launches hython → headless_server.py → serve
 ```
 
 <details>
-<summary><strong>All 166 MCP Tools</strong></summary>
+<summary><strong>All 162 MCP Tools</strong></summary>
 
 ### Scene Management (6)
 | Tool | Description |
@@ -352,7 +352,6 @@ No Houdini running? Bridge auto-launches hython → headless_server.py → serve
 | `set_usd_attribute` | Set a USD prim attribute value |
 | `get_usd_prim_stats` | Get USD prim statistics |
 | `get_last_modified_prims` | Get recently modified prims |
-| `create_lop_node` | Create a LOP node |
 | `get_usd_composition` | Get USD composition arcs |
 | `get_usd_variants` | Get USD variant sets and selections |
 | `inspect_usd_layer` | Inspect a USD layer |
@@ -364,8 +363,6 @@ No Houdini running? Bridge auto-launches hython → headless_server.py → serve
 | `get_cop_info` | Get COP node info and planes |
 | `get_cop_geometry` | Get COP geometry data |
 | `get_cop_layer` | Get COP layer/plane info |
-| `create_cop_node` | Create a COP node |
-| `set_cop_flags` | Set COP node flags |
 | `list_cop_node_types` | List available COP node types |
 | `get_cop_vdb` | Get COP VDB volume info |
 
@@ -373,7 +370,6 @@ No Houdini running? Bridge auto-launches hython → headless_server.py → serve
 | Tool | Description |
 |------|-------------|
 | `get_chop_data` | Get CHOP channel data and samples |
-| `create_chop_node` | Create a CHOP node |
 | `list_chop_channels` | List channels in a CHOP node |
 | `export_chop_to_parm` | Export a CHOP channel to a parameter |
 
@@ -414,8 +410,6 @@ No Houdini running? Bridge auto-launches hython → headless_server.py → serve
 | `setup_rbd_sim` | Set up an RBD simulation from source geometry |
 | `setup_flip_sim` | Set up a FLIP fluid simulation |
 | `setup_vellum_sim` | Set up a Vellum simulation (cloth, hair, grain) |
-| `create_material_workflow` | Create a material in a material context |
-| `assign_material_workflow` | Assign a material to geometry |
 | `build_sop_chain` | Build a chain of connected SOP nodes |
 | `setup_render` | Set up a render node with camera and output |
 
@@ -543,7 +537,7 @@ On top of [kleer001/houdini-mcp](https://github.com/kleer001/houdini-mcp), this 
 This repository is a fork of [kleer001/houdini-mcp](https://github.com/kleer001/houdini-mcp)
 by kleer001, which is itself derived from the original
 [HoudiniMCP](https://github.com/capoomgit/houdini-mcp) by Capoom (MIT). The bulk of the
-current feature set — the 166-tool surface, the BM25 docs engine, the cpio `.hip` parser,
+current feature set — the 162-tool surface, the BM25 docs engine, the cpio `.hip` parser,
 the event system — comes from kleer001's work. This fork keeps all of it and adds the
 changes listed under [What this fork adds](#what-this-fork-adds). The original copyright is
 retained in [`LICENSE`](LICENSE); this fork is published under the same MIT license.

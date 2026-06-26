@@ -25,15 +25,6 @@ def get_chop_data(path, channel=None, start=None, end=None):
     return {"path": path, "channels": result}
 
 
-def create_chop_node(parent_path, node_type, name=None):
-    """Create a CHOP node."""
-    parent = hou.node(parent_path)
-    if not parent:
-        raise ValueError(f"Parent not found: {parent_path}")
-    node = parent.createNode(node_type, node_name=name)
-    return {"path": node.path(), "name": node.name(), "type": node_type}
-
-
 def list_chop_channels(path):
     """List all channels in a CHOP node."""
     node = hou.node(path)

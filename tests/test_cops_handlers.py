@@ -11,7 +11,7 @@ if "hou" not in sys.modules:
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from houdinimcp.handlers.cops import (
-    get_cop_info, create_cop_node, set_cop_flags, list_cop_node_types,
+    get_cop_info, list_cop_node_types,
 )
 
 
@@ -66,18 +66,6 @@ class TestCopHandlers:
         result = get_cop_info("/img/comp1/file1")
         assert result["xres"] == 1920
         assert "C" in result["planes"]
-
-    def test_create_cop_node(self):
-        parent = MockCopNode("comp1", "/img/comp1")
-        sys.modules["hou"].node = lambda p: parent if p == "/img/comp1" else None
-        result = create_cop_node("/img/comp1", "file", "myfile")
-        assert result["type"] == "file"
-
-    def test_set_cop_flags(self):
-        cop = MockCopNode("file1", "/img/comp1/file1")
-        sys.modules["hou"].node = lambda p: cop if p == "/img/comp1/file1" else None
-        result = set_cop_flags("/img/comp1/file1", display=True)
-        assert "display=True" in result["changes"]
 
     def test_list_cop_node_types(self):
         result = list_cop_node_types()

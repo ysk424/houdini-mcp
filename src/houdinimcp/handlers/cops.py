@@ -51,33 +51,6 @@ def get_cop_layer(path, plane_name="C"):
     }
 
 
-def create_cop_node(parent_path, node_type, name=None):
-    """Create a COP node."""
-    parent = hou.node(parent_path)
-    if not parent:
-        raise ValueError(f"Parent not found: {parent_path}")
-    node = parent.createNode(node_type, node_name=name)
-    return {"path": node.path(), "name": node.name(), "type": node_type}
-
-
-def set_cop_flags(node_path, display=None, render=None, bypass=None):
-    """Set display/render/bypass flags on a COP node."""
-    node = hou.node(node_path)
-    if not node:
-        raise ValueError(f"Node not found: {node_path}")
-    changes = []
-    if display is not None:
-        node.setDisplayFlag(display)
-        changes.append(f"display={display}")
-    if render is not None:
-        node.setRenderFlag(render)
-        changes.append(f"render={render}")
-    if bypass is not None:
-        node.bypass(bypass)
-        changes.append(f"bypass={bypass}")
-    return {"path": node.path(), "changes": changes}
-
-
 def list_cop_node_types():
     """List available COP node types."""
     result = []

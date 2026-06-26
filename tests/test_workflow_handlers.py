@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from houdinimcp.handlers.workflow import (
     setup_pyro_sim, setup_rbd_sim, setup_flip_sim, setup_vellum_sim,
     build_sop_chain, setup_render,
-    create_material_workflow, assign_material_workflow,
 )
 
 
@@ -114,19 +113,6 @@ class TestWorkflowHandlers:
     def test_setup_render(self):
         result = setup_render(render_engine="karma")
         assert result["engine"] == "karma"
-
-    def test_create_material_workflow(self):
-        result = create_material_workflow("mymat", "/mat")
-        assert result["type"] == "principledshader"
-
-    def test_assign_material_workflow(self):
-        mat_parm = MockParm("shop_materialpath")
-        self.geo._parms["shop_materialpath"] = mat_parm
-        mat_node = MockNode("shader1", "/mat/shader1")
-        nodes = {"/obj/geo1": self.geo, "/mat/shader1": mat_node}
-        sys.modules["hou"].node = lambda p: nodes.get(p)
-        result = assign_material_workflow("/obj/geo1", "/mat/shader1")
-        assert result["assigned"] is True
 
     def test_source_not_found(self):
         sys.modules["hou"].node = lambda p: self.obj if p == "/obj" else None

@@ -185,15 +185,6 @@ def get_last_modified_prims(path, count=10):
     return {"path": path, "prims": prims}
 
 
-def create_lop_node(parent_path, node_type, name=None):
-    """Create a LOP node."""
-    parent = hou.node(parent_path)
-    if not parent:
-        raise ValueError(f"Parent not found: {parent_path}")
-    node = parent.createNode(node_type, node_name=name)
-    return {"path": node.path(), "name": node.name(), "type": node_type}
-
-
 def get_usd_composition(path, prim_path):
     """Get composition arcs (references, payloads, inherits, etc.) for a prim."""
     node = hou.node(path)

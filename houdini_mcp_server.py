@@ -1410,28 +1410,6 @@ def get_cop_layer(ctx: Context, path: str, plane_name: str = "C") -> str:
     return _send_tool_command("get_cop_layer", {"path": path, "plane_name": plane_name})
 
 @mcp.tool()
-def create_cop_node(ctx: Context, parent_path: str, node_type: str,
-                    name: str = None) -> str:
-    """Create a COP node."""
-    params = {"parent_path": parent_path, "node_type": node_type}
-    if name is not None:
-        params["name"] = name
-    return _send_tool_command("create_cop_node", params)
-
-@mcp.tool()
-def set_cop_flags(ctx: Context, node_path: str, display: bool = None,
-                  render: bool = None, bypass: bool = None) -> str:
-    """Set display/render/bypass flags on a COP node."""
-    params = {"node_path": node_path}
-    if display is not None:
-        params["display"] = display
-    if render is not None:
-        params["render"] = render
-    if bypass is not None:
-        params["bypass"] = bypass
-    return _send_tool_command("set_cop_flags", params)
-
-@mcp.tool()
 def list_cop_node_types(ctx: Context) -> str:
     """List available COP node types."""
     return _send_tool_command("list_cop_node_types")
@@ -1455,15 +1433,6 @@ def get_chop_data(ctx: Context, path: str, channel: str = None,
     if end is not None:
         params["end"] = end
     return _send_tool_command("get_chop_data", params)
-
-@mcp.tool()
-def create_chop_node(ctx: Context, parent_path: str, node_type: str,
-                     name: str = None) -> str:
-    """Create a CHOP node."""
-    params = {"parent_path": parent_path, "node_type": node_type}
-    if name is not None:
-        params["name"] = name
-    return _send_tool_command("create_chop_node", params)
 
 @mcp.tool()
 def list_chop_channels(ctx: Context, path: str) -> str:
@@ -1564,15 +1533,6 @@ def get_last_modified_prims(ctx: Context, path: str, count: int = 10) -> str:
     return _send_tool_command("get_last_modified_prims", {"path": path, "count": count})
 
 @mcp.tool()
-def create_lop_node(ctx: Context, parent_path: str, node_type: str,
-                    name: str = None) -> str:
-    """Create a LOP node."""
-    params = {"parent_path": parent_path, "node_type": node_type}
-    if name is not None:
-        params["name"] = name
-    return _send_tool_command("create_lop_node", params)
-
-@mcp.tool()
 def get_usd_composition(ctx: Context, path: str, prim_path: str) -> str:
     """Get composition arcs (references, payloads, inherits, specializes) for a prim."""
     return _send_tool_command("get_usd_composition", {"path": path, "prim_path": prim_path})
@@ -1624,28 +1584,6 @@ def setup_vellum_sim(ctx: Context, source_path: str, sim_type: str = "cloth",
     """Set up a Vellum simulation (cloth, hair, grain)."""
     return _send_tool_command("setup_vellum_sim", {
         "source_path": source_path, "sim_type": sim_type, "name": name, "parent_path": parent_path,
-    })
-
-@mcp.tool()
-def create_material_workflow(ctx: Context, name: str = "mat_principled",
-                             parent_path: str = "/mat",
-                             material_type: str = "principledshader") -> str:
-    """Create a material node in a material context."""
-    return _send_tool_command("create_material_workflow", {
-        "name": name, "parent_path": parent_path, "material_type": material_type,
-    })
-
-@mcp.tool()
-def assign_material_workflow(ctx: Context, geo_path: str, material_path: str) -> str:
-    """
-    Assign a material to a geometry node by setting its shop_materialpath, in a single call.
-    Use after creating a shader (e.g. principledshader::2.0) to bind it to dressed geometry. Cleaner than setting shop_materialpath manually via set_parameters.
-    Args: geo_path (the geo container, e.g. "/obj/garment_test"), material_path (the shader, e.g. "/mat/garment_test/pink_satin").
-    Pitfall: material_path must point at the SHADER node itself, not the parent material subnet. "/mat/garment_test/pink_satin" works; "/mat/garment_test" (the subnet) does not. Materials live under /mat by convention.
-    Example: assign_material_workflow(geo_path="/obj/garment_test", material_path="/mat/garment_test/pink_satin").
-    """
-    return _send_tool_command("assign_material_workflow", {
-        "geo_path": geo_path, "material_path": material_path,
     })
 
 @mcp.tool()
@@ -1975,9 +1913,9 @@ def usd_scene_assembly() -> str:
 Steps:
 1. Use get_scene_info to check the current scene
 2. Create a LOP network: create_node(type="lopnet", parent="/obj")
-3. Import geometry: create_lop_node with type="sopimport" or lop_import for USD files
-4. Add materials: create_material_workflow, then assign via set_usd_attribute
-5. Add lights: create_lop_node with light types (distantlight, domelight, spherelight)
+3. Import geometry: create_node in a LOP parent with type="sopimport" or lop_import for USD files
+4. Add materials: create_node in /mat, then assign via set_usd_attribute
+5. Add lights: create_node in a LOP parent with light types (distantlight, domelight, spherelight)
 6. Set light parameters with modify_node
 7. Configure render settings: setup_render with camera_path and render_engine
 8. Use list_usd_prims to verify the stage hierarchy

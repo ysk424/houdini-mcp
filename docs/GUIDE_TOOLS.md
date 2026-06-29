@@ -1,273 +1,136 @@
 # MCP Tool Reference
 
-HoudiniMCP provides 41+ tools organized by category. All tools that interact with
-Houdini require a running Houdini instance with the plugin loaded. Documentation
-search tools work offline.
+HoudiniMCP exposes 88 MCP tools in the default Codex/Claude surface. The set is
+kept intentionally focused on simulation, viewport capture, rendering, node
+work, parameters, cache management, undo/redo, and documentation lookup.
+
+All tools that interact with Houdini require a running Houdini instance with the
+plugin loaded. `search_docs` and `get_doc` work offline.
 
 ## How Tools Work
 
 Each tool sends a JSON command over TCP to the Houdini plugin, which executes it
-and returns a JSON response. Mutating commands (create, modify, delete) are wrapped
-in Houdini undo groups so they can be undone with Ctrl+Z.
-
----
-
-## Scene Management
-
-### `ping`
-Health check. Returns server status (alive, host, port, client connected).
-
-### `get_connection_status`
-Returns connection details: whether connected, port, command count, timing info.
-
-### `get_scene_info`
-Returns scene summary: file path, current frame, FPS, frame range, and node counts
-for /obj, /shop, /stage.
-
-### `save_scene`
-Save the current scene. Optionally pass `file_path` to save to a new location.
-
-### `load_scene`
-Load a .hip file. Pass `file_path` (e.g., `/path/to/scene.hip`).
-
-### `set_frame`
-Set the current frame in Houdini's playbar. Pass `frame` (float).
-
----
-
-## Node Operations
-
-### `create_node`
-Create a new node. Parameters:
-- `node_type` (required): e.g., "geo", "box", "sphere"
-- `parent_path`: default "/obj"
-- `name`: optional custom name
-
-### `modify_node`
-Modify an existing node. Parameters:
-- `path` (required): node path
-- `parameters`: dict of parm name → value
-- `position`: [x, y] in network editor
-- `name`: rename the node
-
-### `delete_node`
-Delete a node by its path.
-
-### `get_node_info`
-Returns detailed info: type, parameters (names + values), inputs, outputs,
-flags, position, and error state.
-
-### `connect_nodes`
-Wire two nodes together. Parameters:
-- `src_path`, `dst_path` (required)
-- `dst_input_index`: default 0
-- `src_output_index`: default 0
-
-### `disconnect_node_input`
-Disconnect a specific input on a node.
-
-### `set_node_flags`
-Set display, render, and/or bypass flags.
-
-### `set_node_color`
-Set a node's color as `[r, g, b]` (0-1 range).
-
-### `layout_children`
-Auto-layout child nodes in the network editor. Pass `node_path` (default "/obj").
-
-### `find_error_nodes`
-Recursively scan a hierarchy for nodes with cook errors or warnings.
-
----
-
-## Code Execution
-
-### `execute_houdini_code`
-Execute arbitrary Python code in Houdini's environment. Parameters:
-- `code` (required): Python source code string
-- `allow_dangerous`: default False. When False, blocks patterns like `os.remove`,
-  `subprocess`, `hou.exit`, etc.
-
-Returns stdout and stderr from the code execution.
-
----
-
-## Materials
-
-### `set_material`
-Create or apply a material. Parameters:
-- `node_path` (required): OBJ node to apply material to
-- `material_type`: default "principledshader"
-- `name`: material name
-- `parameters`: material parameter overrides
-
----
-
-## Geometry
-
-### `get_geo_summary`
-Get geometry statistics for a SOP node: point/prim/vertex counts, bounding box
-dimensions, and attribute names (point, prim, vertex, detail).
-
-### `geo_export`
-Export geometry to a file. Parameters:
-- `node_path` (required)
-- `format`: "obj", "gltf", "glb", "usd", "usda", "ply", "bgeo.sc"
-- `output`: file path (auto-generated if not specified)
-
----
-
-## Rendering
-
-### `render_single_view`
-Render a single viewport. Parameters:
-- `orthographic`: default False
-- `rotation`: [rx, ry, rz] default [0, 90, 0]
-- `render_engine`: "opengl", "karma", or "mantra"
-- `karma_engine`: "cpu" or "xpu"
-
-### `render_quad_views`
-Render 4 canonical orthographic views (front, right, top, perspective).
-
-### `render_specific_camera`
-Render from a specific camera node in the scene.
-
-### `render_flipbook`
-Render a flipbook sequence from the viewport. Parameters:
-- `frame_range`: [start, end]
-- `output`: file path with `$F4` for frame number
-- `resolution`: [width, height]
-
-### `get_rop_output_path`
-Resolve a ROP node's primary output filepath without running a render. Closes the asymmetry with `set_render_settings`. Read-only; no side effects.
-
-Resolution tiers (first match wins):
-1. `picture_param=` — explicit override; use for HDA / unknown engines
-2. Known parm-name map per ROP type (`karma`→`picture`, `ifd`→`vm_picture`, `usdrender_rop`→`outputimage`, `geometry`→`sopoutput`, `alembic`→`filename`, etc.)
-3. Tag scan over FileReference write-tagged parms (sidecars like `husk_*`, `soho_*`, `vm_tmp*`, `dcm*` filtered out)
-
-Parameters:
-- `path`: ROP node path (required)
-- `picture_param`: explicit parm name to read; raises if not found
-- `frame`: frame to substitute into `$F`/`$FF` (default: current playbar frame)
-- `expand`: when False, keep `$HIP`/`$F` unresolved in `path_raw`; `path_resolved` becomes `null`
-- `min_mtime`: Unix-epoch seconds; if file's mtime is not strictly greater, `exists` is reported as False (use `time.time()` before `start_render` to poll for fresh output without false positives from stale prior renders)
-
-Returns a dict with:
-- `path_raw`, `path_resolved`, `frame_used`
-- `is_sequence` (definitive: `evalAtFrame(1) != evalAtFrame(2)`)
-- `frame_range`, `frame_range_active` (true iff `trange != 0`)
-- `first_frame_path`, `last_frame_path` (only when sequence + range active)
-- `representative_path` — the path used for `exists`/`mtime`/`size_bytes` checks (first frame for active sequences, current frame otherwise)
-- `category`: `image` | `mplay` | `usd` | `geometry` | `usd_render_via_settings` | `unknown`
-- `exists`, `mtime`, `size_bytes`
-- `param_used`, `param_source` (`override` | `known_map` | `tag_scan`), `tag_scan_candidates`
-- `warnings`: `hip_unsaved` (when `$HIP` used in unsaved scene), `override_param_empty` (when `picture_param` resolves to empty)
-- `hint`: when `category == "usd_render_via_settings"`, points at the RenderSettings USD prim
-
-Polling pattern for mid-render output detection:
-
-```python
-import time
-t0 = time.time()
-start_render(path)
-# In a poll loop with natural agent cadence:
-result = get_rop_output_path(path, min_mtime=t0)
-# result["exists"] == False until a freshly-written file appears
-```
-
----
-
-## PDG/TOPs
-
-### `pdg_cook`
-Start cooking a TOP network (non-blocking).
-
-### `pdg_status`
-Get cook status: waiting, cooking, cooked, and failed work item counts.
-
-### `pdg_workitems`
-List work items with their state and output files. Optionally filter by state.
-
-### `pdg_dirty`
-Dirty work items for re-cooking. Pass `dirty_all=True` to dirty everything.
-
-### `pdg_cancel`
-Cancel a running PDG cook.
-
----
-
-## USD/Solaris (LOP)
-
-### `lop_stage_info`
-Get USD stage summary from a LOP node: prim count, root prims, default prim,
-layer count, time codes.
-
-### `lop_prim_get`
-Get details of a specific prim. Pass `include_attrs=True` for attribute values.
-
-### `lop_prim_search`
-Search for prims by pattern (e.g., `/**/*light*`). Optionally filter by type.
-
-### `lop_layer_info`
-Get the USD layer stack (identifiers and file paths).
-
-### `lop_import`
-Import a USD file via reference or sublayer.
-
----
-
-## HDA Management
-
-### `hda_list`
-List available HDA definitions. Optionally filter by `category` (e.g., "Sop").
-
-### `hda_get`
-Detailed info about an HDA: label, library path, version, max inputs, sections.
-
-### `hda_install`
-Install an HDA file into the current session.
-
-### `hda_create`
-Create an HDA from an existing node. Parameters:
-- `node_path`, `name`, `label`, `file_path` (all required)
-
----
-
-## Batch Operations
-
-### `batch`
-Execute multiple operations atomically in a single undo group. Each operation is
-`{"type": "command_name", "params": {...}}`.
-
----
-
-## Event System
-
-### `get_houdini_events`
-Get pending events that occurred since the last poll. Returns:
-`{count, events: [{type, timestamp, details}, ...]}`.
-
-Event types: `scene_loaded`, `scene_saved`, `scene_cleared`, `node_created`,
-`node_deleted`, `frame_changed`.
-
-### `subscribe_houdini_events`
-Filter which events to collect. Pass `types` as a list, or omit for all events.
-
----
-
-## Documentation Search (offline)
-
-### `search_docs`
-BM25 search across Houdini documentation. Parameters:
-- `query` (required): search text
-- `top_k`: number of results (default 5)
-
-Returns ranked results with path, title, preview (500 chars), and relevance score.
-
-### `get_doc`
-Read the full content of a documentation page. Pass `path` as returned by
-`search_docs`.
-
-These tools work without a Houdini connection. Requires running
-`python scripts/fetch_houdini_docs.py` first.
+and returns a JSON response. Mutating commands are wrapped in Houdini undo groups
+where possible, and `undo`, `redo`, and `get_undo_history` are exposed directly.
+
+For uncommon Houdini API work, use `execute_houdini_code` instead of exposing a
+dedicated MCP wrapper for every possible operation.
+
+## Default Tool Surface
+
+### Scene and Code
+
+- `ping`
+- `get_scene_info`
+- `save_scene`
+- `load_scene`
+- `execute_houdini_code`
+- `batch`
+- `get_scene_dossier`
+
+### Nodes and Networks
+
+- `create_node`
+- `modify_node`
+- `delete_node`
+- `get_node_info`
+- `set_node_flags`
+- `layout_children`
+- `find_error_nodes`
+- `get_network_overview`
+- `get_cook_chain`
+- `get_selection`
+- `set_selection`
+- `copy_node`
+- `move_node`
+- `rename_node`
+- `list_children`
+- `find_nodes`
+- `connect_nodes_batch`
+- `set_current_network`
+
+### Parameters and Animation
+
+- `get_parameter`
+- `set_parameters`
+- `get_parameter_schema`
+- `set_expression`
+- `set_frame`
+- `get_frame`
+- `set_frame_range`
+- `set_playback_range`
+- `playbar_control`
+- `set_keyframes`
+- `get_keyframes`
+
+### VEX, Materials, and Geometry
+
+- `create_wrangle`
+- `validate_vex`
+- `set_material`
+- `list_materials`
+- `get_material_info`
+- `create_material_network`
+- `assign_material`
+- `get_geo_summary`
+- `get_points`
+- `get_prims`
+- `get_attrib_values`
+- `set_detail_attrib`
+- `get_bounding_box`
+- `geo_export`
+
+### Simulation and Cache
+
+- `get_simulation_info`
+- `list_dop_objects`
+- `step_simulation`
+- `reset_simulation`
+- `list_caches`
+- `get_cache_status`
+- `clear_cache`
+- `write_cache`
+- `setup_pyro_sim`
+- `setup_rbd_sim`
+- `setup_flip_sim`
+- `setup_vellum_sim`
+- `build_sop_chain`
+
+### Viewport, Capture, and Rendering
+
+- `render_view`
+- `render_flipbook`
+- `screenshot_viewport`
+- `list_panes`
+- `get_viewport_info`
+- `set_viewport_camera`
+- `set_viewport_display`
+- `set_viewport_renderer`
+- `frame_view`
+- `set_viewport_direction`
+- `list_render_nodes`
+- `get_render_settings`
+- `set_render_settings`
+- `create_render_node`
+- `start_render`
+- `get_render_progress`
+- `get_rop_output_path`
+- `monitor_render`
+- `setup_render`
+- `list_lights`
+
+### Docs and Undo
+
+- `search_docs`
+- `get_doc`
+- `undo`
+- `redo`
+- `get_undo_history`
+
+## Removed From Default Surface
+
+The previous expanded surface included many thin wrappers for PDG/TOPs, HDA
+management, COPs, event polling, low-level USD attributes, HScript, node type
+introspection, spare parameters, parameter locking/linking, and other infrequent
+operations. Those are intentionally not exposed by default. They can still be
+performed through `execute_houdini_code` when a workflow needs them.

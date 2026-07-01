@@ -56,6 +56,7 @@ Hard-won lessons from real production use of the Houdini MCP. Organized by conte
   - [flipbookSettings.resolution Silently Ignored Without useResolution](#flipbooksettingsresolution-is-silently-ignored-without-useresolutiontrue)
   - [Toggle Server Does Not Reload Plugin Code](#toggle-server-shelf-button-does-not-reload-plugin-code)
   - [Flipbook Off-Screen Viewport in Single Layout](#sceneviewerflipbookviewport-settings-silently-fails-for-off-screen-viewports-in-single-layout)
+  - [Viewport Screenshot viewwrite Target Names](#viewport-screenshot-viewwrite-target-names-need-context-segments)
 - [General MCP Usage](#general-mcp-usage)
   - [Connection Discipline](#connection-discipline)
   - [Node Inspection Caveats](#node-inspection-caveats)
@@ -761,6 +762,28 @@ The patch survives only until Houdini exits.
 A SceneViewer in `Single` layout still reports four `viewports()` (e.g. `right1`, `front1`, `top1`, `front2`), but only `curViewport()` is actually drawn — the others sit at a 1×1 / 101×101 stub. Calling `flipbook(off_screen_vp, settings)` produces no output file, and on some builds hangs Houdini's renderer until the bridge connection times out (WinError 10053).
 
 **Fix:** Before flipbook, gate on `viewer.viewportLayout() == hou.geometryViewportLayout.Single` and require the requested viewport to equal `viewer.curViewport()`. Multi-view layouts (Quad, Double*, Triple*) draw all `viewports()` and accept any of them.
+
+---
+
+### Viewport Screenshot `viewwrite` Target Names Need Context Segments
+
+> Houdini 21.0.700
+
+`viewwrite` does not reliably accept the short pane/viewport form produced by `SceneViewer.name()` and `curViewport().name()`. In the Build desktop, `Build.panetab1.persp1` failed with `No viewers found to write`, while `Build.panetab1.world.persp1` worked.
+
+For Solaris/LOP panes the equivalent form can include the Solaris context, for example `Solaris.panetab7.solaris.persp1`. Generic viewport names such as `persp1` are ambiguous when multiple SceneViewer panes exist.
+
+**Fix:** Build screenshot targets with likely context segments and try them in order:
+
+```text
+<desktop>.<pane>.<context>.<viewport>
+<desktop>.<pane>.<viewport>
+<pane>.<context>.<viewport>
+<pane>.<viewport>
+<viewport>
+```
+
+Use `world` for OBJ context and `solaris` for LOP context. Report candidate targets when resolution is ambiguous, and fall back to flipbook only if all `viewwrite` candidates fail.
 
 ---
 

@@ -7,7 +7,7 @@ Supports parallel extraction with --workers N.
 
 Usage:
     hython scripts/extract_hdas.py                          # auto-detect $HFS
-    hython scripts/extract_hdas.py --hfs-dir /opt/hfs21.0
+    hython scripts/extract_hdas.py --hfs-dir "C:/Program Files (x86)/Steam/steamapps/common/Houdini Indie"
     hython scripts/extract_hdas.py --output hda_parsed.json
     hython scripts/extract_hdas.py --extra-dir ~/my_hdas
     hython scripts/extract_hdas.py --workers 8              # parallel extraction
@@ -47,6 +47,24 @@ def _find_hdas(hfs_path, extra_dirs=None):
                 if ext in (".hda", ".otl"):
                     results.append(os.path.join(root, fname))
     return results
+
+
+def _is_steam_houdini_root(hfs_path):
+    """True when hfs_path looks like the Steam Houdini Indie install root."""
+    if not hfs_path or not os.path.isdir(hfs_path):
+        return False
+    return os.path.isfile(os.path.join(hfs_path, "bin", "steam_appid.txt"))
+
+
+def _find_hython(hfs_path):
+    """Find Steam Houdini Indie's hython binary under $HFS/bin/."""
+    if not _is_steam_houdini_root(hfs_path):
+        return None
+    for name in ("hython.exe", "hython3.11.exe", "hython"):
+        path = os.path.join(hfs_path, "bin", name)
+        if os.path.isfile(path):
+            return path
+    return None
 
 
 # Map hou node category names to parent context paths for createNode
@@ -247,7 +265,9 @@ def _run_parallel(hfs, hda_files, output_path, workers):
     import tempfile
 
     script_path = os.path.abspath(__file__)
-    hython = os.path.join(hfs, "bin", "hython")
+    hython = _find_hython(hfs)
+    if not hython:
+        raise RuntimeError(f"Steam Houdini Indie hython not found under {hfs}/bin/")
 
     # Split HDA list into chunks (round-robin for balanced load)
     chunks = [[] for _ in range(workers)]
@@ -340,7 +360,7 @@ def _auto_workers(hda_count):
 
 def main():
     parser = argparse.ArgumentParser(description="Extract HDA networks via hython")
-    parser.add_argument("--hfs-dir", default=None, help="Explicit $HFS path")
+    parser.add_argument("--hfs-dir", default=None, help="Explicit Steam Houdini Indie root")
     parser.add_argument("--extra-dir", action="append", default=[],
                         help="Additional directories to scan for HDAs")
     parser.add_argument("--output", default=None,
@@ -361,6 +381,9 @@ def main():
     if not hfs or not os.path.isdir(hfs):
         print("Error: Could not find Houdini installation.", file=sys.stderr)
         print("Use --hfs-dir or set $HFS.", file=sys.stderr)
+        sys.exit(1)
+    if not _is_steam_houdini_root(hfs):
+        print("Error: Only Steam Houdini Indie installs are supported.", file=sys.stderr)
         sys.exit(1)
 
     hda_files = _find_hdas(hfs, extra_dirs=args.extra_dir)

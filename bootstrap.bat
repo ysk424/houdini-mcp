@@ -57,17 +57,11 @@ if defined PYTHON (
 
 REM Houdini (advisory — non-blocking)
 set "HOUDINI_FOUND=0"
-where houdini >nul 2>&1
-if %errorlevel% equ 0 (
+if exist "%PROGRAMFILES(X86)%\Steam\steamapps\common\Houdini Indie\bin\hindie.steam.exe" (
     set "HOUDINI_FOUND=1"
-    echo [OK]   Houdini found in PATH
+    echo [OK]   Steam Houdini Indie found
 ) else (
-    if exist "C:\Program Files\Side Effects Software\Houdini*" (
-        set "HOUDINI_FOUND=1"
-        echo [OK]   Houdini found in Program Files
-    ) else (
-        echo [!!]   Houdini not detected (setup continues — install Houdini when ready^)
-    )
+    echo [!!]   Steam Houdini Indie not detected (setup continues — install it when ready^)
 )
 
 REM -------------------------------------------------------

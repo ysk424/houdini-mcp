@@ -25,7 +25,14 @@ def _load_module():
     tree = ast.parse(source)
 
     # Collect top-level assignments and function defs we need
-    target_funcs = {"_node_category", "_auto_workers", "_find_hips", "main"}
+    target_funcs = {
+        "_node_category",
+        "_auto_workers",
+        "_find_hips",
+        "_find_hython",
+        "_is_steam_houdini_root",
+        "main",
+    }
     target_assigns = {"_UI_ONLY_TYPES", "_CONTEXT_CATEGORIES"}
 
     nodes_to_compile = []
@@ -118,6 +125,24 @@ class TestAutoWorkers:
     def test_large_count(self, mod):
         result = mod["_auto_workers"](500)
         assert result >= 1
+
+
+class TestSteamHython:
+    def test_find_hython_prefers_steam_windows_binary(self, mod, tmp_path):
+        bin_dir = tmp_path / "Houdini Indie" / "bin"
+        bin_dir.mkdir(parents=True)
+        hython = bin_dir / "hython.exe"
+        hython.write_text("")
+        (bin_dir / "steam_appid.txt").write_text("502570")
+
+        assert mod["_find_hython"](str(tmp_path / "Houdini Indie")) == str(hython)
+
+    def test_find_hython_rejects_non_steam_root(self, mod, tmp_path):
+        bin_dir = tmp_path / "Houdini 21.0" / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "hython.exe").write_text("")
+
+        assert mod["_find_hython"](str(tmp_path / "Houdini 21.0")) is None
 
 
 class TestArgparse:

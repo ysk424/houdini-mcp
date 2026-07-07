@@ -1,9 +1,6 @@
 """Tests for scripts/ingest_hips.py — Houdini install detection & .hip discovery."""
 import os
 import sys
-import tempfile
-
-import pytest
 
 # scripts/ is not a package — add it to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
@@ -15,70 +12,59 @@ from ingest_hips import find_houdini_install, discover_hip_files
 # find_houdini_install
 # ---------------------------------------------------------------------------
 class TestFindHoudiniInstall:
+    def _make_steam_root(self, path):
+        bin_dir = path / "bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "steam_appid.txt").write_text("502570")
+        return str(path)
+
     def test_hfs_dir_arg_valid(self, tmp_path):
-        """Explicit --hfs-dir that exists is returned."""
-        result = find_houdini_install(hfs_dir=str(tmp_path))
-        assert result == str(tmp_path)
+        """Explicit Steam --hfs-dir is returned."""
+        steam_root = self._make_steam_root(tmp_path / "Houdini Indie")
+        result = find_houdini_install(hfs_dir=steam_root)
+        assert result == steam_root
 
     def test_hfs_dir_arg_missing(self):
         """Explicit --hfs-dir that doesn't exist returns None."""
         result = find_houdini_install(hfs_dir="/nonexistent/hfs99.9")
         assert result is None
 
+    def test_hfs_dir_arg_rejects_non_steam(self, tmp_path):
+        """Explicit non-Steam Houdini roots are ignored."""
+        regular_root = tmp_path / "Houdini 21.0"
+        (regular_root / "bin").mkdir(parents=True)
+        result = find_houdini_install(hfs_dir=str(regular_root))
+        assert result is None
+
     def test_hfs_env_var(self, tmp_path, monkeypatch):
-        """$HFS env var pointing to a valid dir is returned."""
-        monkeypatch.setenv("HFS", str(tmp_path))
+        """$HFS env var pointing to Steam Houdini is returned."""
+        steam_root = self._make_steam_root(tmp_path / "Houdini Indie")
+        monkeypatch.setenv("HFS", steam_root)
         result = find_houdini_install()
-        assert result == str(tmp_path)
+        assert result == steam_root
 
     def test_hfs_env_var_invalid(self, monkeypatch):
         """$HFS set but dir doesn't exist — falls through."""
         monkeypatch.setenv("HFS", "/nonexistent/hfs")
-        monkeypatch.setattr("ingest_hips.glob.glob", lambda p, **kw: [])
+        monkeypatch.setenv("PROGRAMFILES(X86)", "/nonexistent/programfiles")
         result = find_houdini_install()
         assert result is None
 
-    def test_platform_glob_linux(self, tmp_path, monkeypatch):
-        """Linux glob /opt/hfs* returns newest."""
+    def test_known_steam_location(self, tmp_path, monkeypatch):
+        """Default Steam install location is detected."""
         monkeypatch.delenv("HFS", raising=False)
-        monkeypatch.setattr("ingest_hips.platform.system", lambda: "Linux")
-
-        dir1 = str(tmp_path / "hfs20.0")
-        dir2 = str(tmp_path / "hfs21.0")
-        os.makedirs(dir1)
-        os.makedirs(dir2)
-
-        # sorted reverse → dir2 first
-        monkeypatch.setattr("ingest_hips.glob.glob", lambda p, **kw: sorted([dir1, dir2], reverse=True))
+        program_files_x86 = tmp_path / "Program Files (x86)"
+        steam_root = self._make_steam_root(
+            program_files_x86 / "Steam" / "steamapps" / "common" / "Houdini Indie"
+        )
+        monkeypatch.setenv("PROGRAMFILES(X86)", str(program_files_x86))
         result = find_houdini_install()
-        assert result == dir2
-
-    def test_platform_glob_darwin(self, tmp_path, monkeypatch):
-        """macOS glob picks newest."""
-        monkeypatch.delenv("HFS", raising=False)
-        monkeypatch.setattr("ingest_hips.platform.system", lambda: "Darwin")
-
-        d = str(tmp_path / "Houdini21.0.123")
-        os.makedirs(d)
-        monkeypatch.setattr("ingest_hips.glob.glob", lambda p, **kw: [d])
-        result = find_houdini_install()
-        assert result == d
-
-    def test_platform_glob_windows(self, tmp_path, monkeypatch):
-        """Windows glob picks newest."""
-        monkeypatch.delenv("HFS", raising=False)
-        monkeypatch.setattr("ingest_hips.platform.system", lambda: "Windows")
-
-        d = str(tmp_path / "Houdini 21.0")
-        os.makedirs(d)
-        monkeypatch.setattr("ingest_hips.glob.glob", lambda p, **kw: [d])
-        result = find_houdini_install()
-        assert result == d
+        assert result == steam_root
 
     def test_nothing_found(self, monkeypatch):
-        """No env, no glob matches → None."""
+        """No env and no Steam install returns None."""
         monkeypatch.delenv("HFS", raising=False)
-        monkeypatch.setattr("ingest_hips.glob.glob", lambda p, **kw: [])
+        monkeypatch.setenv("PROGRAMFILES(X86)", "/nonexistent/programfiles")
         result = find_houdini_install()
         assert result is None
 

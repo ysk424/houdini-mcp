@@ -25,8 +25,6 @@ import socket
 import subprocess
 import logging
 import tempfile
-import shutil
-import platform
 import atexit
 import time as _time
 from dataclasses import dataclass
@@ -38,6 +36,7 @@ import asyncio
 
 HOUDINI_PORT = int(os.getenv("HOUDINIMCP_PORT", 9876))
 HEADLESS_DISABLED = os.getenv("HOUDINIMCP_NO_HEADLESS", "").strip() in ("1", "true", "yes")
+STEAM_HOUDINI_DIR_ENV = "HOUDINIMCP_STEAM_HOUDINI_DIR"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HoudiniMCP_StdioServer")
@@ -156,49 +155,45 @@ class HoudiniConnection:
 _hython_process = None
 
 
+def _steam_houdini_root_candidates() -> List[str]:
+    """Return Steam Houdini Indie install roots to probe."""
+    candidates = []
+    override = os.environ.get(STEAM_HOUDINI_DIR_ENV)
+    if override:
+        candidates.append(override)
+    candidates.append(os.path.join(
+        os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+        "Steam", "steamapps", "common", "Houdini Indie",
+    ))
+    return candidates
+
+
+def _is_steam_houdini_root(path: str) -> bool:
+    """True when path looks like the Steam Houdini Indie install root."""
+    if not path or not os.path.isdir(path):
+        return False
+    return os.path.isfile(os.path.join(path, "bin", "steam_appid.txt"))
+
+
 def find_hython() -> Optional[str]:
-    """Locate the hython binary (Houdini's headless Python interpreter)."""
-    # 1. HFS env var (set when Houdini environment is sourced)
+    """Locate Steam Houdini Indie's hython binary."""
+    candidates = []
+
+    # HFS may be set when launched from Houdini's environment. Accept it only
+    # when it points at the Steam install, so the bridge never starts the
+    # SideFX-installed build by accident.
     hfs = os.environ.get("HFS")
     if hfs:
-        candidate = os.path.join(hfs, "bin", "hython")
-        if os.path.isfile(candidate):
-            return candidate
+        candidates.append(hfs)
+    candidates.extend(_steam_houdini_root_candidates())
 
-    # 2. Already on PATH
-    on_path = shutil.which("hython")
-    if on_path:
-        return on_path
-
-    # 3. Scan common install locations
-    system = platform.system()
-    candidates = []
-    if system == "Linux":
-        if os.path.isdir("/opt"):
-            for d in sorted(os.listdir("/opt"), reverse=True):
-                if d.startswith("hfs"):
-                    candidates.append(os.path.join("/opt", d, "bin", "hython"))
-    elif system == "Windows":
-        for base in [r"C:\Program Files\Side Effects Software",
-                     r"C:\Program Files (x86)\Side Effects Software"]:
-            if os.path.isdir(base):
-                for d in sorted(os.listdir(base), reverse=True):
-                    candidates.append(os.path.join(base, d, "bin", "hython.exe"))
-    elif system == "Darwin":
-        for base in ["/Applications/Houdini"]:
-            if os.path.isdir(base):
-                for d in sorted(os.listdir(base), reverse=True):
-                    candidates.append(os.path.join(
-                        base, d, "Frameworks", "Houdini.framework",
-                        "Versions", "Current", "Resources", "bin", "hython"))
-        if os.path.isdir("/opt"):
-            for d in sorted(os.listdir("/opt"), reverse=True):
-                if d.startswith("hfs"):
-                    candidates.append(os.path.join("/opt", d, "bin", "hython"))
-
-    for c in candidates:
-        if os.path.isfile(c):
-            return c
+    for root in candidates:
+        if not _is_steam_houdini_root(root):
+            continue
+        for name in ("hython.exe", "hython3.11.exe", "hython"):
+            candidate = os.path.join(root, "bin", name)
+            if os.path.isfile(candidate):
+                return candidate
     return None
 
 
@@ -221,7 +216,7 @@ def _launch_headless_houdini() -> bool:
 
     hython = find_hython()
     if not hython:
-        logger.warning("Cannot launch headless Houdini: hython not found.")
+        logger.warning("Cannot launch headless Houdini: Steam Houdini Indie hython not found.")
         return False
 
     headless_script = os.path.join(script_dir, "scripts", "headless_server.py")

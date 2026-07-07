@@ -345,11 +345,9 @@ PDG cook is non-blocking. After calling `pdg_cook`, poll `pdg_status` after a de
 
 When no Houdini GUI is running, the MCP bridge tries to find and launch `hython` automatically. If this isn't working:
 
-1. **Is hython findable?** The bridge checks `$HFS/bin/hython`, then `PATH`, then common install locations (`/opt/hfs*`, `C:\Program Files\Side Effects Software\*`). Verify:
+1. **Is Steam hython findable?** The bridge only checks Steam Houdini Indie. `$HFS` is accepted only when it points at the Steam install; otherwise the bridge probes `C:\Program Files (x86)\Steam\steamapps\common\Houdini Indie`. Set `HOUDINIMCP_STEAM_HOUDINI_DIR` if your Steam library is elsewhere. Verify:
    ```bash
-   which hython
-   # or
-   ls /opt/hfs*/bin/hython
+   dir "C:\Program Files (x86)\Steam\steamapps\common\Houdini Indie\bin\hython.exe"
    ```
 
 2. **Is headless disabled?** Check that `HOUDINIMCP_NO_HEADLESS` isn't set:
@@ -408,4 +406,4 @@ HOUDINIMCP_PORT=9877 uv run python houdini_mcp_server.py
 ### Linux
 
 - Houdini preferences are in `~/houdiniX.Y/`.
-- If Houdini was installed to `/opt/hfsX.Y`, you need to source `houdini_setup` before Houdini's Python environment is available. The plugin doesn't need this — it runs inside Houdini where `hou` is already available.
+- For Steam Houdini Indie in a non-default Steam library, set `HOUDINIMCP_STEAM_HOUDINI_DIR` to the `Houdini Indie` install root. The plugin itself does not need this when it is already running inside Houdini where `hou` is available.

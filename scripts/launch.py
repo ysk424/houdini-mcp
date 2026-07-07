@@ -8,68 +8,60 @@ Usage:
     python launch.py --bridge-only    # Launch MCP bridge only (Houdini already running)
 
 Environment variables:
-    HOUDINI_PATH       Path to Houdini executable (e.g. /opt/hfs20.0/bin/houdini)
+    HOUDINI_PATH       Path to Steam hindie.steam.exe
+    HOUDINIMCP_STEAM_HOUDINI_DIR
+                       Steam Houdini Indie install root when outside the default library
     HOUDINIMCP_PORT    TCP port for plugin communication (default: 9876)
     HOUDINIMCP_HIP     Optional .hip file to open on launch
 """
 import os
 import sys
 import subprocess
-import shutil
 import argparse
-import platform
+
+
+STEAM_HOUDINI_DIR_ENV = "HOUDINIMCP_STEAM_HOUDINI_DIR"
+
+
+def _steam_houdini_root_candidates():
+    """Return Steam Houdini Indie install roots to probe."""
+    candidates = []
+    override = os.environ.get(STEAM_HOUDINI_DIR_ENV)
+    if override:
+        candidates.append(override)
+    candidates.append(os.path.join(
+        os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+        "Steam", "steamapps", "common", "Houdini Indie",
+    ))
+    return candidates
+
+
+def _is_steam_houdini_root(path):
+    """True when path looks like the Steam Houdini Indie install root."""
+    if not path or not os.path.isdir(path):
+        return False
+    return os.path.isfile(os.path.join(path, "bin", "steam_appid.txt"))
+
+
+def _is_steam_houdini_executable(path):
+    """True for Steam Houdini Indie's launcher executable."""
+    if not path or not os.path.isfile(path):
+        return False
+    if os.path.basename(path).lower() != "hindie.steam.exe":
+        return False
+    return _is_steam_houdini_root(os.path.dirname(os.path.dirname(path)))
 
 
 def find_houdini():
-    """Locate the Houdini executable, checking HOUDINI_PATH env var first, then common locations."""
+    """Locate the Steam Houdini Indie executable."""
     env_path = os.environ.get("HOUDINI_PATH")
-    if env_path and os.path.isfile(env_path):
+    if _is_steam_houdini_executable(env_path):
         return env_path
 
-    system = platform.system()
-    candidates = []
-
-    if system == "Windows":
-        # Prefer Steam Houdini Indie when installed because it has a distinct
-        # executable and licensing path from the SideFX-installed build.
-        candidates.append(
-            os.path.join(
-                os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
-                "Steam", "steamapps", "common", "Houdini Indie", "bin",
-                "hindie.steam.exe",
-            )
-        )
-        # Check common Windows install locations
-        for base in [r"C:\Program Files\Side Effects Software", r"C:\Program Files (x86)\Side Effects Software"]:
-            if os.path.isdir(base):
-                for d in sorted(os.listdir(base), reverse=True):
-                    candidates.append(os.path.join(base, d, "bin", "houdini.exe"))
-    elif system == "Darwin":
-        # macOS: /Applications/Houdini/HoudiniX.Y.Z/...
-        for base in ["/Applications/Houdini"]:
-            if os.path.isdir(base):
-                for d in sorted(os.listdir(base), reverse=True):
-                    candidates.append(os.path.join(base, d, "Frameworks", "Houdini.framework", "Versions", "Current", "Resources", "bin", "houdini"))
-        # Also check /opt
-        if os.path.isdir("/opt"):
-            for d in sorted(os.listdir("/opt"), reverse=True):
-                if d.startswith("hfs"):
-                    candidates.append(os.path.join("/opt", d, "bin", "houdini"))
-    else:
-        # Linux: /opt/hfsX.Y or common install dirs
-        if os.path.isdir("/opt"):
-            for d in sorted(os.listdir("/opt"), reverse=True):
-                if d.startswith("hfs"):
-                    candidates.append(os.path.join("/opt", d, "bin", "houdini"))
-
-    # Also check if houdini is on PATH
-    path_houdini = shutil.which("houdini")
-    if path_houdini:
-        candidates.insert(0, path_houdini)
-
-    for c in candidates:
-        if os.path.isfile(c):
-            return c
+    for root in _steam_houdini_root_candidates():
+        candidate = os.path.join(root, "bin", "hindie.steam.exe")
+        if _is_steam_houdini_executable(candidate):
+            return candidate
 
     return None
 
@@ -106,16 +98,23 @@ def main():
     parser.add_argument("--bridge", action="store_true", help="Also start the MCP bridge after launching Houdini")
     parser.add_argument("--bridge-only", action="store_true", help="Start only the MCP bridge (Houdini already running)")
     parser.add_argument("--hip", default=os.environ.get("HOUDINIMCP_HIP"), help="Path to .hip file to open")
-    parser.add_argument("--houdini-path", default=None, help="Explicit path to Houdini executable")
+    parser.add_argument("--houdini-path", default=None, help="Explicit path to Steam hindie.steam.exe")
     args = parser.parse_args()
 
     if args.bridge_only:
         launch_bridge()
         return
 
-    houdini_path = args.houdini_path or find_houdini()
+    if args.houdini_path:
+        if not _is_steam_houdini_executable(args.houdini_path):
+            print("Error: --houdini-path must point to Steam Houdini Indie hindie.steam.exe.", file=sys.stderr)
+            sys.exit(1)
+        houdini_path = args.houdini_path
+    else:
+        houdini_path = find_houdini()
     if not houdini_path:
-        print("Error: Could not find Houdini. Set HOUDINI_PATH or use --houdini-path.", file=sys.stderr)
+        print("Error: Could not find Steam Houdini Indie. Set HOUDINI_PATH, "
+              f"{STEAM_HOUDINI_DIR_ENV}, or use --houdini-path.", file=sys.stderr)
         sys.exit(1)
 
     launch_houdini(houdini_path, args.hip)

@@ -73,37 +73,7 @@ else
 fi
 
 # Houdini (advisory — non-blocking)
-HOUDINI_FOUND=false
-if command -v houdini &>/dev/null || command -v hython &>/dev/null; then
-    HOUDINI_FOUND=true
-    ok "Houdini found in PATH"
-else
-    # Check common install locations
-    case "$OS" in
-        Linux)
-            for d in /opt/hfs*; do
-                if [ -d "$d" ]; then
-                    HOUDINI_FOUND=true
-                    ok "Houdini found: $d"
-                    break
-                fi
-            done
-            ;;
-        Darwin)
-            for d in /Applications/Houdini*; do
-                if [ -d "$d" ]; then
-                    HOUDINI_FOUND=true
-                    ok "Houdini found: $d"
-                    break
-                fi
-            done
-            ;;
-    esac
-fi
-
-if [ "$HOUDINI_FOUND" = false ]; then
-    warn "Houdini not detected (setup continues — install Houdini when ready)"
-fi
+warn "Steam Houdini Indie auto-detection is Windows-only; setup continues"
 
 # -------------------------------------------------------
 # Step 2: Clone repo (skip if already inside it)

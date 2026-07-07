@@ -210,7 +210,7 @@ If no Houdini GUI is running when the MCP bridge starts, it automatically launch
 - **Cleanup**: the hython process is terminated when the MCP bridge shuts down
 - **Disable**: set `HOUDINIMCP_NO_HEADLESS=1` to prevent auto-launch
 
-hython is found via `$HFS/bin/hython`, `PATH`, or common install locations (`/opt/hfs*`, `C:\Program Files\Side Effects Software\*`).
+hython is found only from Steam Houdini Indie: `$HFS` is accepted when it points at the Steam install, otherwise the bridge probes `C:\Program Files (x86)\Steam\steamapps\common\Houdini Indie`. Set `HOUDINIMCP_STEAM_HOUDINI_DIR` if your Steam library is elsewhere.
 
 > **Note:** GUI-only tools (viewport, screenshots, flipbook) won't work in headless mode. All node, geometry, parameter, rendering, USD, PDG, HDA, and code execution tools work normally.
 

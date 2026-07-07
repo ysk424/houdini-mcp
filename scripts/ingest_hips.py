@@ -11,16 +11,15 @@ Usage:
     python scripts/ingest_hips.py all                          # full pipeline (including HDAs)
 
     Options for discover/parse/extract-hdas/extract/all:
-        --hfs-dir /opt/hfs21.0          Explicit $HFS path
+        --hfs-dir "C:/Program Files (x86)/Steam/steamapps/common/Houdini Indie"
+                                             Explicit Steam Houdini Indie root
         --extra-dir ~/my_hips           Additional directories to scan
         --output results.json           Custom output path for parse
 """
 
 import argparse
-import glob
 import json
 import os
-import platform
 import subprocess
 import sys
 import time
@@ -32,37 +31,46 @@ REPO_ROOT = os.path.dirname(SCRIPT_DIR)
 HIP_EXTENSIONS = {".hip", ".hipnc"}
 HDA_EXTENSIONS = {".hda", ".otl"}
 ALL_EXTENSIONS = HIP_EXTENSIONS | HDA_EXTENSIONS
+STEAM_HOUDINI_DIR_ENV = "HOUDINIMCP_STEAM_HOUDINI_DIR"
+
+
+def _steam_houdini_root_candidates():
+    """Return Steam Houdini Indie install roots to probe."""
+    candidates = []
+    override = os.environ.get(STEAM_HOUDINI_DIR_ENV)
+    if override:
+        candidates.append(override)
+    candidates.append(os.path.join(
+        os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+        "Steam", "steamapps", "common", "Houdini Indie",
+    ))
+    return candidates
+
+
+def _is_steam_houdini_root(path):
+    """True when path looks like the Steam Houdini Indie install root."""
+    if not path or not os.path.isdir(path):
+        return False
+    return os.path.isfile(os.path.join(path, "bin", "steam_appid.txt"))
 
 
 def find_houdini_install(hfs_dir=None):
     """Return the $HFS path (Houdini install root) or None.
 
-    Priority: hfs_dir arg > $HFS env var > platform-specific glob.
+    Only Steam Houdini Indie installs are accepted.
+    Priority: hfs_dir arg > Steam HFS env var > known Steam install paths.
     """
+    if _is_steam_houdini_root(hfs_dir):
+        return hfs_dir
     if hfs_dir:
-        if os.path.isdir(hfs_dir):
-            return hfs_dir
         return None
 
     hfs_env = os.environ.get("HFS")
-    if hfs_env and os.path.isdir(hfs_env):
+    if _is_steam_houdini_root(hfs_env):
         return hfs_env
 
-    system = platform.system()
-    if system == "Linux":
-        candidates = sorted(glob.glob("/opt/hfs*"), reverse=True)
-    elif system == "Darwin":
-        candidates = sorted(glob.glob("/Applications/Houdini/Houdini*"), reverse=True)
-    elif system == "Windows":
-        candidates = sorted(
-            glob.glob(r"C:\Program Files\Side Effects Software\Houdini *"),
-            reverse=True,
-        )
-    else:
-        candidates = []
-
-    for path in candidates:
-        if os.path.isdir(path):
+    for path in _steam_houdini_root_candidates():
+        if _is_steam_houdini_root(path):
             return path
     return None
 
@@ -244,8 +252,10 @@ def cmd_parse(args):
 
 
 def _find_hython(hfs_path):
-    """Find hython binary under $HFS/bin/."""
-    for name in ("hython", "hython.exe"):
+    """Find Steam Houdini Indie's hython binary under $HFS/bin/."""
+    if not _is_steam_houdini_root(hfs_path):
+        return None
+    for name in ("hython.exe", "hython3.11.exe", "hython"):
         path = os.path.join(hfs_path, "bin", name)
         if os.path.isfile(path):
             return path

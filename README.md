@@ -29,6 +29,8 @@ Control **SideFX Houdini** from **Claude** using the **Model Context Protocol**.
 
 **Prerequisites:** git and Python 3.10+. Houdini is optional at setup time.
 
+**Tested on:** Houdini 22.0.368 (Steam Indie) on Windows, with Houdini's embedded Python 3.13. The installer targets Houdini 22 only.
+
 **Linux / macOS:**
 ```bash
 curl -sSL https://raw.githubusercontent.com/ysk424/houdini-mcp/main/bootstrap.sh | bash

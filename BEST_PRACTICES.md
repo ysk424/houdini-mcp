@@ -452,8 +452,7 @@ sampled point positions were identical at frames 1, 25, and 250.
 
 **Fix:** Import the USD skin with `kinefx::usdskinimport`, import bind/current
 poses with `kinefx::usdanimimport`, then run `kinefx::jointdeform`. Export the
-Joint Deform result with a `rop_alembic` SOP. See
-`docs/WORKFLOW_HOUDINI_BODY_ALEMBIC_FOR_MD.md`.
+Joint Deform result with a `rop_alembic` SOP.
 
 ---
 

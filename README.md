@@ -6,7 +6,7 @@
   <a href="https://github.com/ysk424/houdini-mcp/blob/main/LICENSE"><img src="https://img.shields.io/github/license/ysk424/houdini-mcp?color=blue" alt="License: MIT"/></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue?logo=python&logoColor=white" alt="Python 3.10+"/></a>
   <a href="https://modelcontextprotocol.io/"><img src="https://img.shields.io/badge/MCP-compatible-green?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6Ii8+PC9zdmc+" alt="MCP Compatible"/></a>
-  <a href="https://www.sidefx.com/"><img src="https://img.shields.io/badge/Houdini-21.0-orange?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiLz48L3N2Zz4=&logoColor=white" alt="Houdini 21.0"/></a>
+  <a href="https://www.sidefx.com/"><img src="https://img.shields.io/badge/Houdini-22.0-orange?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMTAiLz48L3N2Zz4=&logoColor=white" alt="Houdini 22.0"/></a>
   <a href="https://github.com/ysk424/houdini-mcp/commits/main"><img src="https://img.shields.io/github/last-commit/ysk424/houdini-mcp" alt="Last Commit"/></a>
   <a href="https://github.com/ysk424/houdini-mcp/issues"><img src="https://img.shields.io/github/issues/ysk424/houdini-mcp" alt="Issues"/></a>
   <a href="https://github.com/ysk424/houdini-mcp/network/members"><img src="https://img.shields.io/github/forks/ysk424/houdini-mcp?style=social" alt="Forks"/></a>
@@ -47,17 +47,19 @@ The bootstrap script clones the repo, installs [uv](https://docs.astral.sh/uv/),
 #### 1. Install the Houdini Plugin
 
 ```bash
-# Auto-detect Houdini version and install
+# Install for Houdini 22
 python scripts/install.py
 
-# Or specify version explicitly
-python scripts/install.py --houdini-version 20.5
+# Or point at a prefs directory explicitly
+python scripts/install.py --prefs-dir ~/Documents/houdini22.0
 
 # Preview without changing anything
 python scripts/install.py --dry-run
 ```
 
-This copies plugin files to your Houdini preferences directory, creates a packages JSON for auto-loading, and adds a UI-ready startup hook (`python3.11libs/uiready.py`) so the MCP server starts automatically after Houdini's GUI is ready.
+This creates a packages JSON in your Houdini preferences directory that puts this repo's `src/` on Houdini's `PYTHONPATH`, and adds a UI-ready startup hook (`python3.13libs/uiready.py`) so the MCP server starts automatically after Houdini's GUI is ready.
+
+The plugin runs from this checkout — the sources are not copied into the prefs directory, so edits here take effect on the next Houdini restart with no reinstall. Only `ClaudeTerminal.pypanel` and `houdinimcp.shelf` are copied, since Houdini only scans for those under the prefs directory.
 
 #### 2. Install MCP Dependencies
 
@@ -102,7 +104,7 @@ Register the bridge in `~/.codex/config.toml` while installing the Houdini
 plugin:
 
 ```bash
-python scripts/install.py --houdini-version 21.0 --codex
+python scripts/install.py --codex
 ```
 
 Restart Codex after installation so the `mcp__houdini__*` tools are loaded.

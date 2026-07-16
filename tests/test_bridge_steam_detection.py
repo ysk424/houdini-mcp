@@ -81,7 +81,7 @@ def test_find_hython_rejects_non_steam_hfs(tmp_path, monkeypatch):
 def test_find_hython_accepts_steam_hfs(tmp_path, monkeypatch):
     bridge = _load_bridge_detection()
     steam_root = tmp_path / "Houdini Indie"
-    hython = _make_steam_houdini(steam_root, hython_name="hython3.11.exe")
+    hython = _make_steam_houdini(steam_root, hython_name="hython3.13.exe")
 
     monkeypatch.setenv("HFS", str(steam_root))
     monkeypatch.delenv(bridge.steam_env, raising=False)

@@ -190,7 +190,7 @@ def find_hython() -> Optional[str]:
     for root in candidates:
         if not _is_steam_houdini_root(root):
             continue
-        for name in ("hython.exe", "hython3.11.exe", "hython"):
+        for name in ("hython.exe", "hython3.13.exe", "hython"):
             candidate = os.path.join(root, "bin", name)
             if os.path.isfile(candidate):
                 return candidate

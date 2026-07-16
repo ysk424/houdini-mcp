@@ -24,3 +24,6 @@ hip_patterns_index.json
 
 # Per-machine Claude Code settings
 .claude/
+
+# Machine-specific MCP config written by scripts/install.py
+src/houdinimcp/mcp.json

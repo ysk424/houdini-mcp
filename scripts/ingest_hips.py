@@ -255,7 +255,7 @@ def _find_hython(hfs_path):
     """Find Steam Houdini Indie's hython binary under $HFS/bin/."""
     if not _is_steam_houdini_root(hfs_path):
         return None
-    for name in ("hython.exe", "hython3.11.exe", "hython"):
+    for name in ("hython.exe", "hython3.13.exe", "hython"):
         path = os.path.join(hfs_path, "bin", name)
         if os.path.isfile(path):
             return path

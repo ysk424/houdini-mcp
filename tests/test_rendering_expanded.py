@@ -13,7 +13,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from houdinimcp.handlers.rendering import (
     list_render_nodes, get_render_settings, set_render_settings,
     create_render_node, start_render, get_render_progress,
+    screenshot_viewport,
 )
+import houdinimcp.handlers.rendering as rendering
 
 
 class MockParm:
@@ -74,10 +76,28 @@ class MockOutNode:
 
 class TestRenderingExpanded:
     def setup_method(self):
+        hou = sys.modules["hou"]
         self._orig_node = sys.modules["hou"].node
+        self._orig_ui = getattr(hou, "ui", None)
+        self._orig_pane_tab_type = getattr(hou, "paneTabType", None)
+        self._orig_geometry_viewport_layout = getattr(
+            hou, "geometryViewportLayout", None
+        )
+        self._orig_frame = getattr(hou, "frame", None)
+        self._orig_capture_viewwrite = rendering._capture_viewwrite
 
     def teardown_method(self):
-        sys.modules["hou"].node = self._orig_node
+        hou = sys.modules["hou"]
+        hou.node = self._orig_node
+        hou.ui = self._orig_ui
+        hou.paneTabType = self._orig_pane_tab_type
+        if self._orig_geometry_viewport_layout is None:
+            if hasattr(hou, "geometryViewportLayout"):
+                delattr(hou, "geometryViewportLayout")
+        else:
+            hou.geometryViewportLayout = self._orig_geometry_viewport_layout
+        hou.frame = self._orig_frame
+        rendering._capture_viewwrite = self._orig_capture_viewwrite
 
     def test_list_render_nodes(self):
         rop = MockRopNode("mantra1", "/out/mantra1", "ifd")
@@ -121,3 +141,82 @@ class TestRenderingExpanded:
         sys.modules["hou"].node = lambda p: rop if p == "/out/rop1" else None
         result = get_render_progress("/out/rop1")
         assert result["is_cooking"] is False
+
+    def test_screenshot_uses_exact_viewwrite_target(self):
+        hou = sys.modules["hou"]
+        hou.paneTabType = types.SimpleNamespace(SceneViewer=1)
+        hou.geometryViewportLayout = types.SimpleNamespace(Single="Single")
+        hou.frame = lambda: 12
+
+        class Viewport:
+            def __init__(self, name):
+                self._name = name
+            def name(self):
+                return self._name
+
+        viewport = Viewport("solaris.persp1")
+        viewer = types.SimpleNamespace(
+            name=lambda: "panetab7",
+            type=lambda: hou.paneTabType.SceneViewer,
+            isCurrentTab=lambda: True,
+            viewports=lambda: [viewport],
+            curViewport=lambda: viewport,
+            viewportLayout=lambda: "Quad",
+            pwd=lambda: types.SimpleNamespace(childTypeCategory=lambda: "LOP"),
+        )
+        hou.lopNodeTypeCategory = lambda: "LOP"
+        hou.objNodeTypeCategory = lambda: "OBJ"
+        hou.LopNode = type("LopNode", (), {})
+        hou.ObjNode = type("ObjNode", (), {})
+        hou.ui = types.SimpleNamespace(
+            curDesktop=lambda: types.SimpleNamespace(name=lambda: "Solaris"),
+            paneTabs=lambda: [viewer],
+        )
+
+        calls = []
+        def fake_capture(target, output_path, frame, width, height):
+            calls.append((target, frame, width, height))
+            with open(output_path, "wb") as f:
+                f.write(b"\x89PNG\r\n\x1a\n" + b"test")
+
+        rendering._capture_viewwrite = fake_capture
+        result = screenshot_viewport(
+            width=800,
+            height=600,
+            viewport_name="Solaris.panetab7.solaris.persp1",
+        )
+
+        assert result["status"] == "success"
+        assert result["capture_method"] == "viewwrite"
+        assert result["viewwrite_target_used"] == "Solaris.panetab7.solaris.persp1"
+        assert calls == [("Solaris.panetab7.solaris.persp1", 12, 800, 600)]
+
+    def test_screenshot_reports_ambiguous_viewport_name(self):
+        hou = sys.modules["hou"]
+        hou.paneTabType = types.SimpleNamespace(SceneViewer=1)
+
+        class Viewport:
+            def name(self):
+                return "persp"
+
+        def make_viewer(name):
+            viewport = Viewport()
+            return types.SimpleNamespace(
+                name=lambda: name,
+                type=lambda: hou.paneTabType.SceneViewer,
+                isCurrentTab=lambda: False,
+                viewports=lambda: [viewport],
+                curViewport=lambda: viewport,
+                pwd=lambda: None,
+            )
+
+        hou.ui = types.SimpleNamespace(
+            curDesktop=lambda: types.SimpleNamespace(name=lambda: "Solaris"),
+            paneTabs=lambda: [make_viewer("panetab1"), make_viewer("panetab2")],
+        )
+
+        result = screenshot_viewport(viewport_name="persp")
+
+        assert result["status"] == "error"
+        assert "ambiguous" in result["message"]
+        assert "Solaris.panetab1.persp" in result["message"]

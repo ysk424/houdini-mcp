@@ -30,6 +30,7 @@ location. Use `--dry-run` to preview what it will do.
 - Claude Terminal panel (`.pypanel`) to `python_panels/`
 - HoudiniMCP shelf (`.shelf`) to `toolbar/` — adds Claude Terminal and Toggle Server buttons
 - A packages JSON for auto-loading at Houdini startup
+- A UI-ready startup hook at `python3.11libs/uiready.py`
 
 ## Step 3: Install MCP Dependencies
 
@@ -69,7 +70,7 @@ Go to **Settings > MCP > Add new MCP server** and use the same configuration.
 
 ## Step 5: Verify the Connection
 
-1. Start Houdini (the MCP server plugin auto-starts on port 9876 via `pythonrc.py`)
+1. Start Houdini (the MCP server plugin auto-starts on port 9876 via `python3.11libs/uiready.py`)
 2. In Claude, ask: "Ping Houdini — is it connected?"
 3. Claude should respond with server status info
 

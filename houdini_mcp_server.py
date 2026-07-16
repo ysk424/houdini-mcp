@@ -25,8 +25,6 @@ import socket
 import subprocess
 import logging
 import tempfile
-import shutil
-import platform
 import atexit
 import time as _time
 from dataclasses import dataclass
@@ -38,6 +36,7 @@ import asyncio
 
 HOUDINI_PORT = int(os.getenv("HOUDINIMCP_PORT", 9876))
 HEADLESS_DISABLED = os.getenv("HOUDINIMCP_NO_HEADLESS", "").strip() in ("1", "true", "yes")
+STEAM_HOUDINI_DIR_ENV = "HOUDINIMCP_STEAM_HOUDINI_DIR"
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("HoudiniMCP_StdioServer")
@@ -156,49 +155,45 @@ class HoudiniConnection:
 _hython_process = None
 
 
+def _steam_houdini_root_candidates() -> List[str]:
+    """Return Steam Houdini Indie install roots to probe."""
+    candidates = []
+    override = os.environ.get(STEAM_HOUDINI_DIR_ENV)
+    if override:
+        candidates.append(override)
+    candidates.append(os.path.join(
+        os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+        "Steam", "steamapps", "common", "Houdini Indie",
+    ))
+    return candidates
+
+
+def _is_steam_houdini_root(path: str) -> bool:
+    """True when path looks like the Steam Houdini Indie install root."""
+    if not path or not os.path.isdir(path):
+        return False
+    return os.path.isfile(os.path.join(path, "bin", "steam_appid.txt"))
+
+
 def find_hython() -> Optional[str]:
-    """Locate the hython binary (Houdini's headless Python interpreter)."""
-    # 1. HFS env var (set when Houdini environment is sourced)
+    """Locate Steam Houdini Indie's hython binary."""
+    candidates = []
+
+    # HFS may be set when launched from Houdini's environment. Accept it only
+    # when it points at the Steam install, so the bridge never starts the
+    # SideFX-installed build by accident.
     hfs = os.environ.get("HFS")
     if hfs:
-        candidate = os.path.join(hfs, "bin", "hython")
-        if os.path.isfile(candidate):
-            return candidate
+        candidates.append(hfs)
+    candidates.extend(_steam_houdini_root_candidates())
 
-    # 2. Already on PATH
-    on_path = shutil.which("hython")
-    if on_path:
-        return on_path
-
-    # 3. Scan common install locations
-    system = platform.system()
-    candidates = []
-    if system == "Linux":
-        if os.path.isdir("/opt"):
-            for d in sorted(os.listdir("/opt"), reverse=True):
-                if d.startswith("hfs"):
-                    candidates.append(os.path.join("/opt", d, "bin", "hython"))
-    elif system == "Windows":
-        for base in [r"C:\Program Files\Side Effects Software",
-                     r"C:\Program Files (x86)\Side Effects Software"]:
-            if os.path.isdir(base):
-                for d in sorted(os.listdir(base), reverse=True):
-                    candidates.append(os.path.join(base, d, "bin", "hython.exe"))
-    elif system == "Darwin":
-        for base in ["/Applications/Houdini"]:
-            if os.path.isdir(base):
-                for d in sorted(os.listdir(base), reverse=True):
-                    candidates.append(os.path.join(
-                        base, d, "Frameworks", "Houdini.framework",
-                        "Versions", "Current", "Resources", "bin", "hython"))
-        if os.path.isdir("/opt"):
-            for d in sorted(os.listdir("/opt"), reverse=True):
-                if d.startswith("hfs"):
-                    candidates.append(os.path.join("/opt", d, "bin", "hython"))
-
-    for c in candidates:
-        if os.path.isfile(c):
-            return c
+    for root in candidates:
+        if not _is_steam_houdini_root(root):
+            continue
+        for name in ("hython.exe", "hython3.13.exe", "hython"):
+            candidate = os.path.join(root, "bin", name)
+            if os.path.isfile(candidate):
+                return candidate
     return None
 
 
@@ -221,7 +216,7 @@ def _launch_headless_houdini() -> bool:
 
     hython = find_hython()
     if not hython:
-        logger.warning("Cannot launch headless Houdini: hython not found.")
+        logger.warning("Cannot launch headless Houdini: Steam Houdini Indie hython not found.")
         return False
 
     headless_script = os.path.join(script_dir, "scripts", "headless_server.py")
@@ -395,17 +390,6 @@ def ping(ctx: Context) -> str:
         return f"Ping failed: {str(e)}"
 
 @mcp.tool()
-def get_connection_status(ctx: Context) -> str:
-    """
-    Returns the current connection status to Houdini, including
-    whether connected, port, command count, and timing info.
-    """
-    global _houdini_connection
-    if _houdini_connection is None:
-        return json.dumps({"connected": False, "host": "localhost", "port": HOUDINI_PORT})
-    return json.dumps(_houdini_connection.get_status(), indent=2)
-
-@mcp.tool()
 def get_scene_info(ctx: Context) -> str:
     """
     Ask Houdini for scene info. Returns JSON as a string.
@@ -459,60 +443,56 @@ def execute_houdini_code(ctx: Context, code: str, allow_dangerous: bool = False)
     return f"Execution status unclear from Houdini response: {json.dumps(response)}"
 
 @mcp.tool()
-def render_single_view(ctx: Context,
-                       orthographic: bool = False,
-                       rotation: List[float] = [0, 90, 0],
-                       render_path: str = None,
-                       render_engine: str = "opengl",
-                       karma_engine: str = "cpu") -> str:
+def render_view(ctx: Context,
+                mode: str = "single",
+                camera_path: str = None,
+                orthographic: bool = False,
+                rotation: List[float] = [0, 90, 0],
+                render_path: str = None,
+                render_engine: str = "opengl",
+                karma_engine: str = "cpu") -> str:
     """
-    Render a single view inside Houdini and return the rendered image path.
+    Render the scene and return the image path(s).
+
+    mode:
+      - "single" (default): one view; uses rotation/orthographic.
+      - "quad": 4 canonical views (top/front/side/persp); returns multiple paths.
+      - "camera": render from camera_path (required when mode="camera").
+    render_engine: "opengl" (fast preview) or "karma"/"mantra" (karma_engine: "cpu"|"xpu").
     """
+    rp = render_path or tempfile.gettempdir()
     try:
         conn = get_houdini_connection()
-        response = conn.send_command("render_single_view", {
-            "orthographic": orthographic,
-            "rotation": rotation,
-            "render_path": render_path or tempfile.gettempdir(),
-            "render_engine": render_engine,
-            "karma_engine": karma_engine,
-        })
+        if mode == "quad":
+            response = conn.send_command("render_quad_view", {
+                "render_path": rp,
+                "render_engine": render_engine,
+                "karma_engine": karma_engine,
+            })
+        elif mode == "camera":
+            if not camera_path:
+                return "Error: mode='camera' requires camera_path."
+            response = conn.send_command("render_specific_camera", {
+                "camera_path": camera_path,
+                "render_path": rp,
+                "render_engine": render_engine,
+                "karma_engine": karma_engine,
+            })
+        else:  # single
+            response = conn.send_command("render_single_view", {
+                "orthographic": orthographic,
+                "rotation": rotation,
+                "render_path": rp,
+                "render_engine": render_engine,
+                "karma_engine": karma_engine,
+            })
 
         if response.get("status") == "error":
             origin = response.get("origin", "houdini")
             return f"Error ({origin}): {response.get('message', 'Unknown error')}"
 
         result = response.get("result", {})
-        if isinstance(result, dict) and result.get("filepath"):
-            res = result.get("resolution", [0, 0])
-            return f"Rendered to {result['filepath']} ({res[0]}x{res[1]}, {render_engine})"
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"render_single_view failed: {e}", exc_info=True)
-        return f"Render failed: {str(e)}"
-
-@mcp.tool()
-def render_quad_views(ctx: Context,
-                      render_path: str = None,
-                      render_engine: str = "opengl",
-                      karma_engine: str = "cpu") -> str:
-    """
-    Render 4 canonical views from Houdini and return the image paths.
-    """
-    try:
-        conn = get_houdini_connection()
-        response = conn.send_command("render_quad_view", {
-            "render_path": render_path or tempfile.gettempdir(),
-            "render_engine": render_engine,
-            "karma_engine": karma_engine,
-        })
-
-        if response.get("status") == "error":
-            origin = response.get("origin", "houdini")
-            return f"Error ({origin}): {response.get('message', 'Unknown error')}"
-
-        result = response.get("result", {})
-        if isinstance(result, dict) and isinstance(result.get("results"), list):
+        if mode == "quad" and isinstance(result, dict) and isinstance(result.get("results"), list):
             lines = ["Rendered views:"]
             for view in result["results"]:
                 name = view.get("view_name", "unknown")
@@ -520,40 +500,12 @@ def render_quad_views(ctx: Context,
                 res = view.get("resolution", [0, 0])
                 lines.append(f"  {name}: {fp} ({res[0]}x{res[1]})")
             return "\n".join(lines)
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        logger.error(f"render_quad_views failed: {e}", exc_info=True)
-        return f"Render failed: {str(e)}"
-
-@mcp.tool()
-def render_specific_camera(ctx: Context,
-                           camera_path: str,
-                           render_path: str = None,
-                           render_engine: str = "opengl",
-                           karma_engine: str = "cpu") -> str:
-    """
-    Render from a specific camera path in the Houdini scene.
-    """
-    try:
-        conn = get_houdini_connection()
-        response = conn.send_command("render_specific_camera", {
-            "camera_path": camera_path,
-            "render_path": render_path or tempfile.gettempdir(),
-            "render_engine": render_engine,
-            "karma_engine": karma_engine,
-        })
-
-        if response.get("status") == "error":
-            origin = response.get("origin", "houdini")
-            return f"Error ({origin}): {response.get('message', 'Unknown error')}"
-
-        result = response.get("result", {})
         if isinstance(result, dict) and result.get("filepath"):
             res = result.get("resolution", [0, 0])
             return f"Rendered to {result['filepath']} ({res[0]}x{res[1]}, {render_engine})"
         return json.dumps(result, indent=2)
     except Exception as e:
-        logger.error(f"render_specific_camera failed: {e}", exc_info=True)
+        logger.error(f"render_view failed: {e}", exc_info=True)
         return f"Render failed: {str(e)}"
 
 
@@ -590,14 +542,6 @@ def set_material(ctx: Context, node_path: str, material_type: str = "principleds
     if parameters is not None:
         params["parameters"] = parameters
     return _send_tool_command("set_material", params)
-
-@mcp.tool()
-def disconnect_node_input(ctx: Context, node_path: str, input_index: int = 0) -> str:
-    """Disconnect a specific input on a node."""
-    return _send_tool_command("disconnect_node_input", {
-        "node_path": node_path,
-        "input_index": input_index,
-    })
 
 @mcp.tool()
 def set_node_flags(ctx: Context, node_path: str, display: bool = None,
@@ -658,11 +602,6 @@ def layout_children(ctx: Context, node_path: str = "/obj") -> str:
     return _send_tool_command("layout_children", {"node_path": node_path})
 
 @mcp.tool()
-def set_node_color(ctx: Context, node_path: str, color: List[float] = [1, 1, 1]) -> str:
-    """Set a node's color as [r, g, b] (0-1 range)."""
-    return _send_tool_command("set_node_color", {"node_path": node_path, "color": color})
-
-@mcp.tool()
 def find_error_nodes(ctx: Context, root_path: str = "/obj") -> str:
     """
     Scan a node subtree for cook errors and warnings; returns paths and messages.
@@ -685,16 +624,6 @@ def get_network_overview(ctx: Context, path: str = "/obj") -> str:
 def get_cook_chain(ctx: Context, path: str) -> str:
     """Get the cook dependency chain for a node (inputs all the way up)."""
     return _send_tool_command("get_cook_chain", {"path": path})
-
-@mcp.tool()
-def explain_node(ctx: Context, path: str) -> str:
-    """Get a human-readable explanation of a node: type, non-default parms, connections."""
-    return _send_tool_command("explain_node", {"path": path})
-
-@mcp.tool()
-def get_scene_summary(ctx: Context) -> str:
-    """Get a high-level summary of the entire scene: node counts by category, frame info."""
-    return _send_tool_command("get_scene_summary")
 
 @mcp.tool()
 def get_selection(ctx: Context) -> str:
@@ -736,45 +665,6 @@ def get_parameter_schema(ctx: Context, node_path: str) -> str:
     """
     return _send_tool_command("get_parameter_schema", {"node_path": node_path})
 
-@mcp.tool()
-def get_expression(ctx: Context, node_path: str, parm_name: str) -> str:
-    """Get the expression set on a parameter, if any."""
-    return _send_tool_command("get_expression", {"node_path": node_path, "parm_name": parm_name})
-
-@mcp.tool()
-def revert_parameter(ctx: Context, node_path: str, parm_name: str) -> str:
-    """Revert a parameter to its default value."""
-    return _send_tool_command("revert_parameter", {"node_path": node_path, "parm_name": parm_name})
-
-@mcp.tool()
-def link_parameters(ctx: Context, src_path: str, src_parm: str,
-                    dst_path: str, dst_parm: str) -> str:
-    """Create a channel reference from dst_parm to src_parm."""
-    return _send_tool_command("link_parameters", {
-        "src_path": src_path, "src_parm": src_parm,
-        "dst_path": dst_path, "dst_parm": dst_parm,
-    })
-
-@mcp.tool()
-def lock_parameter(ctx: Context, node_path: str, parm_name: str,
-                   locked: bool = True) -> str:
-    """Lock or unlock a parameter."""
-    return _send_tool_command("lock_parameter", {
-        "node_path": node_path, "parm_name": parm_name, "locked": locked,
-    })
-
-@mcp.tool()
-def create_spare_parameters(ctx: Context, node_path: str,
-                            parameters: List[Dict[str, Any]]) -> str:
-    """Add spare parameters to a node. Types: float, int, string, toggle.
-
-    parameters: list of dicts with keys: name, label, parm_type, default (optional).
-    For a single parm, pass a 1-element list.
-    """
-    return _send_tool_command("create_spare_parameters", {
-        "node_path": node_path, "parameters": parameters,
-    })
-
 # ── Animation tools ──
 
 @mcp.tool()
@@ -786,13 +676,6 @@ def set_keyframes(ctx: Context, node_path: str, parm_name: str,
     """
     return _send_tool_command("set_keyframes", {
         "node_path": node_path, "parm_name": parm_name, "keyframes": keyframes,
-    })
-
-@mcp.tool()
-def delete_keyframe(ctx: Context, node_path: str, parm_name: str, frame: float) -> str:
-    """Delete a keyframe at a specific frame."""
-    return _send_tool_command("delete_keyframe", {
-        "node_path": node_path, "parm_name": parm_name, "frame": frame,
     })
 
 @mcp.tool()
@@ -833,25 +716,6 @@ def create_wrangle(ctx: Context, parent_path: str,
     return _send_tool_command("create_wrangle", params)
 
 @mcp.tool()
-def set_wrangle_code(ctx: Context, node_path: str, code: str) -> str:
-    """Set the VEX code on a wrangle node."""
-    return _send_tool_command("set_wrangle_code", {"node_path": node_path, "code": code})
-
-@mcp.tool()
-def get_wrangle_code(ctx: Context, node_path: str) -> str:
-    """Get the VEX code from a wrangle node."""
-    return _send_tool_command("get_wrangle_code", {"node_path": node_path})
-
-@mcp.tool()
-def create_vex_expression(ctx: Context, parent_path: str, attrib_name: str,
-                          expression: str, run_over: str = "Points") -> str:
-    """Create a wrangle that evaluates a VEX expression into an attribute."""
-    return _send_tool_command("create_vex_expression", {
-        "parent_path": parent_path, "attrib_name": attrib_name,
-        "expression": expression, "run_over": run_over,
-    })
-
-@mcp.tool()
 def validate_vex(ctx: Context, code: str) -> str:
     """Validate VEX code syntax."""
     return _send_tool_command("validate_vex", {"code": code})
@@ -882,11 +746,6 @@ def assign_material(ctx: Context, node_path: str, material_path: str) -> str:
     return _send_tool_command("assign_material", {
         "node_path": node_path, "material_path": material_path,
     })
-
-@mcp.tool()
-def list_material_types(ctx: Context) -> str:
-    """List available material/shader node types."""
-    return _send_tool_command("list_material_types")
 
 # ── Nodes expanded tools ──
 
@@ -920,30 +779,6 @@ def find_nodes(ctx: Context, pattern: str, node_type: str = None,
     return _send_tool_command("find_nodes", params)
 
 @mcp.tool()
-def list_node_types(ctx: Context, category: str = None) -> str:
-    """List available node types, optionally filtered by category."""
-    params = {}
-    if category is not None:
-        params["category"] = category
-    return _send_tool_command("list_node_types", params)
-
-@mcp.tool()
-def describe_node_type(ctx: Context, context: str, node_type: str, verbose: bool = False) -> str:
-    """
-    Get the static schema (parameters, IO, metadata) of a Houdini node type without instantiating it.
-    Use this BEFORE creating a node to know which parms/folders/menus exist, instead of probing via create-then-inspect.
-    Args: context (NodeTypeCategory name, case-sensitive — e.g. "Lop", "Sop", "Object", "Vop", "Driver", "Cop" (=Copernicus, new), "Cop2" (=legacy compositing), "Top", "Chop"). node_type (internal name as it appears in nodeTypes() keys — e.g. "camera", "filecache::2.0", "kinefx::sopcharacterimport"). verbose (default False; True adds embedded help, callback bodies, full unfiltered tags, dynamic-menu script bodies).
-    Returns: JSON. On success {"ok": true, ...full schema...}. On failure {"ok": false, "error": {"kind": "category_not_found"|"node_type_not_found", "did_you_mean": [...]}}. Schema includes parms (flat list with folder_path), folders (with multiparm chain), inputs (min/max/is_variable), outputs. Input/output LABELS are not retrievable without instantiation; use create_node + get_node_info if labels are needed. HDA dynamic parms (added via OnCreated etc.) are not visible — dynamic_parms_possible flag indicates this risk. Manager/Director categories accept calls but contain 0 public types in Houdini 21.
-    Pitfall: context is case-sensitive — "lop" fails, "Lop" works. Pass scoped names exactly as they appear in nodeTypes() keys; "filecache" and "filecache::2.0" are distinct types, no implicit "latest version" alias.
-    Example: describe_node_type("Lop", "camera") returns focal/aperture/etc parm schema. describe_node_type("Sop", "kinefx::motionmixer") shows nested multiparms via multiparm_folder_chain.
-    """
-    return _send_tool_command("describe_node_type", {
-        "context": context,
-        "node_type": node_type,
-        "verbose": verbose,
-    })
-
-@mcp.tool()
 def connect_nodes_batch(ctx: Context, connections: List[Dict[str, Any]]) -> str:
     """
     Connect source-to-destination wires. For a single wire, pass a 1-element list.
@@ -953,11 +788,6 @@ def connect_nodes_batch(ctx: Context, connections: List[Dict[str, Any]]) -> str:
     Example: vellum_cloth -> vellum_solver inputs 0 and 1; unpack_body -> input 2. Three entries; the first two share src_path and differ in dst_input_index.
     """
     return _send_tool_command("connect_nodes_batch", {"connections": connections})
-
-@mcp.tool()
-def reorder_inputs(ctx: Context, path: str, input_indices: List[int]) -> str:
-    """Reorder the inputs of a node by specifying the new index order."""
-    return _send_tool_command("reorder_inputs", {"path": path, "input_indices": input_indices})
 
 # ── Geometry expanded tools ──
 
@@ -995,144 +825,9 @@ def set_detail_attrib(ctx: Context, node_path: str, attrib_name: str, value: Any
     })
 
 @mcp.tool()
-def get_groups(ctx: Context, node_path: str, group_type: str = "point") -> str:
-    """List geometry groups. group_type: point, prim, edge, vertex."""
-    return _send_tool_command("get_groups", {"node_path": node_path, "group_type": group_type})
-
-@mcp.tool()
-def get_group_members(ctx: Context, node_path: str, group_name: str,
-                      group_type: str = "point") -> str:
-    """Get the members of a geometry group."""
-    return _send_tool_command("get_group_members", {
-        "node_path": node_path, "group_name": group_name, "group_type": group_type,
-    })
-
-@mcp.tool()
 def get_bounding_box(ctx: Context, node_path: str) -> str:
     """Get the bounding box of a node's geometry (min, max, size, center)."""
     return _send_tool_command("get_bounding_box", {"node_path": node_path})
-
-@mcp.tool()
-def get_prim_intrinsics(ctx: Context, node_path: str, prim_index: int = 0) -> str:
-    """Get intrinsic values of a primitive."""
-    return _send_tool_command("get_prim_intrinsics", {"node_path": node_path, "prim_index": prim_index})
-
-@mcp.tool()
-def find_nearest_point(ctx: Context, node_path: str, position: List[float]) -> str:
-    """Find the nearest point to a given position in world space."""
-    return _send_tool_command("find_nearest_point", {"node_path": node_path, "position": position})
-
-# ── Code expanded tools ──
-
-@mcp.tool()
-def execute_hscript(ctx: Context, command: str) -> str:
-    """Execute an HScript command and return stdout/stderr."""
-    return _send_tool_command("execute_hscript", {"command": command})
-
-@mcp.tool()
-def evaluate_expression(ctx: Context, expression: str, language: str = "hscript") -> str:
-    """Evaluate a Houdini expression and return the result."""
-    return _send_tool_command("evaluate_expression", {"expression": expression, "language": language})
-
-@mcp.tool()
-def get_env_variable(ctx: Context, name: str) -> str:
-    """Get a Houdini environment variable ($HIP, $JOB, etc.)."""
-    return _send_tool_command("get_env_variable", {"name": name})
-
-# ── PDG tools ──
-
-@mcp.tool()
-def pdg_cook(ctx: Context, path: str) -> str:
-    """Start cooking a TOP network (non-blocking)."""
-    return _send_tool_command("pdg_cook", {"path": path})
-
-@mcp.tool()
-def pdg_status(ctx: Context, path: str) -> str:
-    """Get cook status and work item counts for a TOP network."""
-    return _send_tool_command("pdg_status", {"path": path})
-
-@mcp.tool()
-def pdg_workitems(ctx: Context, path: str, state: str = None) -> str:
-    """List work items for a TOP node, optionally filtered by state."""
-    params = {"path": path}
-    if state is not None:
-        params["state"] = state
-    return _send_tool_command("pdg_workitems", params)
-
-@mcp.tool()
-def pdg_dirty(ctx: Context, path: str, dirty_all: bool = False) -> str:
-    """Dirty work items on a TOP node for re-cooking."""
-    return _send_tool_command("pdg_dirty", {"path": path, "dirty_all": dirty_all})
-
-@mcp.tool()
-def pdg_cancel(ctx: Context, path: str) -> str:
-    """Cancel a running PDG cook."""
-    return _send_tool_command("pdg_cancel", {"path": path})
-
-@mcp.tool()
-def lop_stage_info(ctx: Context, path: str) -> str:
-    """Get USD stage info from a LOP node: prims, layers, time codes."""
-    return _send_tool_command("lop_stage_info", {"path": path})
-
-@mcp.tool()
-def lop_prim_get(ctx: Context, path: str, prim_path: str,
-                 include_attrs: bool = False) -> str:
-    """Get details of a specific USD prim."""
-    return _send_tool_command("lop_prim_get", {
-        "path": path, "prim_path": prim_path, "include_attrs": include_attrs,
-    })
-
-@mcp.tool()
-def lop_prim_search(ctx: Context, path: str, pattern: str,
-                    type_name: str = None) -> str:
-    """Search for USD prims matching a pattern."""
-    params = {"path": path, "pattern": pattern}
-    if type_name is not None:
-        params["type_name"] = type_name
-    return _send_tool_command("lop_prim_search", params)
-
-@mcp.tool()
-def lop_layer_info(ctx: Context, path: str) -> str:
-    """Get USD layer stack info from a LOP node."""
-    return _send_tool_command("lop_layer_info", {"path": path})
-
-@mcp.tool()
-def lop_import(ctx: Context, path: str, file: str,
-               method: str = "reference", prim_path: str = None) -> str:
-    """Import a USD file via reference or sublayer."""
-    params = {"path": path, "file": file, "method": method}
-    if prim_path is not None:
-        params["prim_path"] = prim_path
-    return _send_tool_command("lop_import", params)
-
-@mcp.tool()
-def hda_list(ctx: Context, category: str = None) -> str:
-    """List available HDA definitions, optionally filtered by category."""
-    params = {}
-    if category is not None:
-        params["category"] = category
-    return _send_tool_command("hda_list", params)
-
-@mcp.tool()
-def hda_get(ctx: Context, node_type: str, category: str = None) -> str:
-    """Get detailed info about an HDA definition."""
-    params = {"node_type": node_type}
-    if category is not None:
-        params["category"] = category
-    return _send_tool_command("hda_get", params)
-
-@mcp.tool()
-def hda_install(ctx: Context, file_path: str) -> str:
-    """Install an HDA file into the current Houdini session."""
-    return _send_tool_command("hda_install", {"file_path": file_path})
-
-@mcp.tool()
-def hda_create(ctx: Context, node_path: str, name: str,
-               label: str, file_path: str) -> str:
-    """Create an HDA from an existing node."""
-    return _send_tool_command("hda_create", {
-        "node_path": node_path, "name": name, "label": label, "file_path": file_path,
-    })
 
 @mcp.tool()
 def batch(ctx: Context, operations: List[Dict[str, Any]] = []) -> str:
@@ -1225,23 +920,6 @@ def list_dop_objects(ctx: Context, path: str) -> str:
     return _send_tool_command("list_dop_objects", {"path": path})
 
 @mcp.tool()
-def get_dop_object(ctx: Context, path: str, object_name: str) -> str:
-    """Get info about a specific DOP object."""
-    return _send_tool_command("get_dop_object", {"path": path, "object_name": object_name})
-
-@mcp.tool()
-def get_dop_field(ctx: Context, path: str, object_name: str, field_name: str) -> str:
-    """Get a specific field from a DOP object."""
-    return _send_tool_command("get_dop_field", {
-        "path": path, "object_name": object_name, "field_name": field_name,
-    })
-
-@mcp.tool()
-def get_dop_relationships(ctx: Context, path: str, object_name: str) -> str:
-    """Get relationships of a DOP object."""
-    return _send_tool_command("get_dop_relationships", {"path": path, "object_name": object_name})
-
-@mcp.tool()
 def step_simulation(ctx: Context, path: str, num_steps: int = 1) -> str:
     """Step a simulation forward by a number of frames."""
     return _send_tool_command("step_simulation", {"path": path, "num_steps": num_steps})
@@ -1250,11 +928,6 @@ def step_simulation(ctx: Context, path: str, num_steps: int = 1) -> str:
 def reset_simulation(ctx: Context, path: str) -> str:
     """Reset a simulation to its initial state."""
     return _send_tool_command("reset_simulation", {"path": path})
-
-@mcp.tool()
-def get_sim_memory_usage(ctx: Context, path: str) -> str:
-    """Get memory usage of a simulation."""
-    return _send_tool_command("get_sim_memory_usage", {"path": path})
 
 # ── Viewport tools ──
 
@@ -1303,14 +976,10 @@ def set_viewport_renderer(ctx: Context, renderer: str) -> str:
     return _send_tool_command("set_viewport_renderer", {"renderer": renderer})
 
 @mcp.tool()
-def frame_selection(ctx: Context) -> str:
-    """Frame the viewport on the current selection."""
-    return _send_tool_command("frame_selection")
-
-@mcp.tool()
-def frame_all(ctx: Context) -> str:
-    """Frame the viewport on all geometry."""
-    return _send_tool_command("frame_all")
+def frame_view(ctx: Context, target: str = "all") -> str:
+    """Frame the viewport. target: "all" (all geometry) or "selection" (current selection)."""
+    cmd = "frame_selection" if target == "selection" else "frame_all"
+    return _send_tool_command(cmd)
 
 @mcp.tool()
 def set_viewport_direction(ctx: Context, direction: str) -> str:
@@ -1392,118 +1061,6 @@ def get_rop_output_path(ctx: Context, path: str,
         params["min_mtime"] = min_mtime
     return _send_tool_command("get_rop_output_path", params)
 
-# ── COP tools ──
-
-@mcp.tool()
-def get_cop_info(ctx: Context, path: str) -> str:
-    """Get info about a COP node: resolution, planes, depth."""
-    return _send_tool_command("get_cop_info", {"path": path})
-
-@mcp.tool()
-def get_cop_geometry(ctx: Context, path: str) -> str:
-    """Get geometry data from a COP node."""
-    return _send_tool_command("get_cop_geometry", {"path": path})
-
-@mcp.tool()
-def get_cop_layer(ctx: Context, path: str, plane_name: str = "C") -> str:
-    """Get info about a specific plane/layer in a COP node."""
-    return _send_tool_command("get_cop_layer", {"path": path, "plane_name": plane_name})
-
-@mcp.tool()
-def create_cop_node(ctx: Context, parent_path: str, node_type: str,
-                    name: str = None) -> str:
-    """Create a COP node."""
-    params = {"parent_path": parent_path, "node_type": node_type}
-    if name is not None:
-        params["name"] = name
-    return _send_tool_command("create_cop_node", params)
-
-@mcp.tool()
-def set_cop_flags(ctx: Context, node_path: str, display: bool = None,
-                  render: bool = None, bypass: bool = None) -> str:
-    """Set display/render/bypass flags on a COP node."""
-    params = {"node_path": node_path}
-    if display is not None:
-        params["display"] = display
-    if render is not None:
-        params["render"] = render
-    if bypass is not None:
-        params["bypass"] = bypass
-    return _send_tool_command("set_cop_flags", params)
-
-@mcp.tool()
-def list_cop_node_types(ctx: Context) -> str:
-    """List available COP node types."""
-    return _send_tool_command("list_cop_node_types")
-
-@mcp.tool()
-def get_cop_vdb(ctx: Context, path: str) -> str:
-    """Get VDB info from a COP node."""
-    return _send_tool_command("get_cop_vdb", {"path": path})
-
-# ── CHOP tools ──
-
-@mcp.tool()
-def get_chop_data(ctx: Context, path: str, channel: str = None,
-                  start: int = None, end: int = None) -> str:
-    """Get CHOP channel data, optionally for a specific channel and sample range."""
-    params = {"path": path}
-    if channel is not None:
-        params["channel"] = channel
-    if start is not None:
-        params["start"] = start
-    if end is not None:
-        params["end"] = end
-    return _send_tool_command("get_chop_data", params)
-
-@mcp.tool()
-def create_chop_node(ctx: Context, parent_path: str, node_type: str,
-                     name: str = None) -> str:
-    """Create a CHOP node."""
-    params = {"parent_path": parent_path, "node_type": node_type}
-    if name is not None:
-        params["name"] = name
-    return _send_tool_command("create_chop_node", params)
-
-@mcp.tool()
-def list_chop_channels(ctx: Context, path: str) -> str:
-    """List all channels in a CHOP node."""
-    return _send_tool_command("list_chop_channels", {"path": path})
-
-@mcp.tool()
-def export_chop_to_parm(ctx: Context, chop_path: str, channel_name: str,
-                        target_path: str, parm_name: str) -> str:
-    """Export a CHOP channel to a parameter via expression."""
-    return _send_tool_command("export_chop_to_parm", {
-        "chop_path": chop_path, "channel_name": channel_name,
-        "target_path": target_path, "parm_name": parm_name,
-    })
-
-# ── Takes tools ──
-
-@mcp.tool()
-def list_takes(ctx: Context) -> str:
-    """List all takes in the scene."""
-    return _send_tool_command("list_takes")
-
-@mcp.tool()
-def get_current_take(ctx: Context) -> str:
-    """Get the current take."""
-    return _send_tool_command("get_current_take")
-
-@mcp.tool()
-def set_current_take(ctx: Context, take_name: str) -> str:
-    """Set the current take by name."""
-    return _send_tool_command("set_current_take", {"take_name": take_name})
-
-@mcp.tool()
-def create_take(ctx: Context, name: str, parent_name: str = None) -> str:
-    """Create a new take, optionally under a parent take."""
-    params = {"name": name}
-    if parent_name is not None:
-        params["parent_name"] = parent_name
-    return _send_tool_command("create_take", params)
-
 # ── Cache tools ──
 
 @mcp.tool()
@@ -1528,64 +1085,6 @@ def write_cache(ctx: Context, path: str, frame_range: List[float] = None) -> str
     if frame_range is not None:
         params["frame_range"] = frame_range
     return _send_tool_command("write_cache", params)
-
-# ── USD/LOP expanded tools ──
-
-@mcp.tool()
-def list_usd_prims(ctx: Context, path: str, root_prim: str = "/",
-                   max_depth: int = 3) -> str:
-    """List USD prims up to a given depth."""
-    return _send_tool_command("list_usd_prims", {"path": path, "root_prim": root_prim, "max_depth": max_depth})
-
-@mcp.tool()
-def get_usd_attribute(ctx: Context, path: str, prim_path: str,
-                      attr_name: str) -> str:
-    """Get a specific USD attribute value."""
-    return _send_tool_command("get_usd_attribute", {
-        "path": path, "prim_path": prim_path, "attr_name": attr_name,
-    })
-
-@mcp.tool()
-def set_usd_attribute(ctx: Context, path: str, prim_path: str,
-                      attr_name: str, value: Any) -> str:
-    """Set a USD attribute value."""
-    return _send_tool_command("set_usd_attribute", {
-        "path": path, "prim_path": prim_path, "attr_name": attr_name, "value": value,
-    })
-
-@mcp.tool()
-def get_usd_prim_stats(ctx: Context, path: str, prim_path: str) -> str:
-    """Get stats about a USD prim: child count, attr count, active, payload."""
-    return _send_tool_command("get_usd_prim_stats", {"path": path, "prim_path": prim_path})
-
-@mcp.tool()
-def get_last_modified_prims(ctx: Context, path: str, count: int = 10) -> str:
-    """Get recently modified prims from the edit target layer."""
-    return _send_tool_command("get_last_modified_prims", {"path": path, "count": count})
-
-@mcp.tool()
-def create_lop_node(ctx: Context, parent_path: str, node_type: str,
-                    name: str = None) -> str:
-    """Create a LOP node."""
-    params = {"parent_path": parent_path, "node_type": node_type}
-    if name is not None:
-        params["name"] = name
-    return _send_tool_command("create_lop_node", params)
-
-@mcp.tool()
-def get_usd_composition(ctx: Context, path: str, prim_path: str) -> str:
-    """Get composition arcs (references, payloads, inherits, specializes) for a prim."""
-    return _send_tool_command("get_usd_composition", {"path": path, "prim_path": prim_path})
-
-@mcp.tool()
-def get_usd_variants(ctx: Context, path: str, prim_path: str) -> str:
-    """Get variant sets and selections for a USD prim."""
-    return _send_tool_command("get_usd_variants", {"path": path, "prim_path": prim_path})
-
-@mcp.tool()
-def inspect_usd_layer(ctx: Context, path: str, layer_index: int = 0) -> str:
-    """Inspect a specific USD layer by index in the stack."""
-    return _send_tool_command("inspect_usd_layer", {"path": path, "layer_index": layer_index})
 
 @mcp.tool()
 def list_lights(ctx: Context, path: str) -> str:
@@ -1627,28 +1126,6 @@ def setup_vellum_sim(ctx: Context, source_path: str, sim_type: str = "cloth",
     })
 
 @mcp.tool()
-def create_material_workflow(ctx: Context, name: str = "mat_principled",
-                             parent_path: str = "/mat",
-                             material_type: str = "principledshader") -> str:
-    """Create a material node in a material context."""
-    return _send_tool_command("create_material_workflow", {
-        "name": name, "parent_path": parent_path, "material_type": material_type,
-    })
-
-@mcp.tool()
-def assign_material_workflow(ctx: Context, geo_path: str, material_path: str) -> str:
-    """
-    Assign a material to a geometry node by setting its shop_materialpath, in a single call.
-    Use after creating a shader (e.g. principledshader::2.0) to bind it to dressed geometry. Cleaner than setting shop_materialpath manually via set_parameters.
-    Args: geo_path (the geo container, e.g. "/obj/garment_test"), material_path (the shader, e.g. "/mat/garment_test/pink_satin").
-    Pitfall: material_path must point at the SHADER node itself, not the parent material subnet. "/mat/garment_test/pink_satin" works; "/mat/garment_test" (the subnet) does not. Materials live under /mat by convention.
-    Example: assign_material_workflow(geo_path="/obj/garment_test", material_path="/mat/garment_test/pink_satin").
-    """
-    return _send_tool_command("assign_material_workflow", {
-        "geo_path": geo_path, "material_path": material_path,
-    })
-
-@mcp.tool()
 def build_sop_chain(ctx: Context, parent_path: str,
                     nodes: List[Dict[str, Any]]) -> str:
     """
@@ -1670,72 +1147,6 @@ def setup_render(ctx: Context, camera_path: str = None,
     if output_path is not None:
         params["output_path"] = output_path
     return _send_tool_command("setup_render", params)
-
-# ── HDA expanded tools ──
-
-@mcp.tool()
-def uninstall_hda(ctx: Context, file_path: str) -> str:
-    """Uninstall an HDA file from the current session."""
-    return _send_tool_command("uninstall_hda", {"file_path": file_path})
-
-@mcp.tool()
-def reload_hda(ctx: Context, file_path: str) -> str:
-    """Reload all HDA definitions from a file."""
-    return _send_tool_command("reload_hda", {"file_path": file_path})
-
-@mcp.tool()
-def update_hda(ctx: Context, node_path: str) -> str:
-    """Update an HDA definition from its current node contents."""
-    return _send_tool_command("update_hda", {"node_path": node_path})
-
-@mcp.tool()
-def get_hda_sections(ctx: Context, node_type: str, category: str = None) -> str:
-    """Get the section names of an HDA."""
-    params = {"node_type": node_type}
-    if category is not None:
-        params["category"] = category
-    return _send_tool_command("get_hda_sections", params)
-
-@mcp.tool()
-def get_hda_section_content(ctx: Context, node_type: str, section_name: str,
-                            category: str = None) -> str:
-    """Get the content of a specific HDA section."""
-    params = {"node_type": node_type, "section_name": section_name}
-    if category is not None:
-        params["category"] = category
-    return _send_tool_command("get_hda_section_content", params)
-
-@mcp.tool()
-def set_hda_section_content(ctx: Context, node_type: str, section_name: str,
-                            content: str, category: str = None) -> str:
-    """Set the content of a specific HDA section."""
-    params = {"node_type": node_type, "section_name": section_name, "content": content}
-    if category is not None:
-        params["category"] = category
-    return _send_tool_command("set_hda_section_content", params)
-
-# ── Event tools ──
-
-@mcp.tool()
-def get_houdini_events(ctx: Context, since: float = None) -> str:
-    """Get pending Houdini events (scene changes, node operations, frame changes).
-    Returns buffered events since last poll and clears the buffer.
-    Optionally pass a timestamp to only get events after that time."""
-    params = {}
-    if since is not None:
-        params["since"] = since
-    return _send_tool_command("get_pending_events", params)
-
-@mcp.tool()
-def subscribe_houdini_events(ctx: Context, types: List[str] = None) -> str:
-    """Configure which Houdini event types to collect.
-    Types: scene_loaded, scene_saved, scene_cleared, node_created, node_deleted, frame_changed.
-    Pass None/empty for all events."""
-    params = {}
-    if types is not None:
-        params["types"] = types
-    return _send_tool_command("subscribe_events", params)
-
 
 @mcp.tool()
 def search_docs(ctx: Context, query: str, top_k: int = 5) -> str:
@@ -1899,220 +1310,6 @@ def get_scene_dossier(
         "max_undo_entries": max_undo_entries,
         "max_children_per_node": max_children_per_node,
     })
-
-
-# ── MCP Resources ──
-
-@mcp.resource("houdini://scene/info")
-def resource_scene_info() -> str:
-    """Current scene info: filename, node count, frame range, FPS."""
-    return _send_tool_command("get_scene_info")
-
-@mcp.resource("houdini://scene/nodes/{path}")
-def resource_node_info(path: str) -> str:
-    """Detailed info about a node: type, parameters, inputs, outputs."""
-    return _send_tool_command("get_node_info", {"path": f"/{path}"})
-
-@mcp.resource("houdini://scene/tree")
-def resource_scene_tree() -> str:
-    """Full scene node tree (recursive children of /obj)."""
-    return _send_tool_command("list_children", {"path": "/obj", "recursive": True})
-
-@mcp.resource("houdini://errors")
-def resource_errors() -> str:
-    """All cook errors and warnings in the scene."""
-    return _send_tool_command("find_error_nodes", {"root_path": "/obj"})
-
-@mcp.resource("houdini://node-types/{context}")
-def resource_node_types(context: str) -> str:
-    """Available node types for a given category (Sop, Object, Cop2, etc.)."""
-    return _send_tool_command("list_node_types", {"category": context})
-
-@mcp.resource("houdini://hdas")
-def resource_hdas() -> str:
-    """All installed HDA definitions."""
-    return _send_tool_command("hda_list")
-
-@mcp.resource("houdini://geometry/{node_path}/summary")
-def resource_geo_summary(node_path: str) -> str:
-    """Geometry summary for a node: point/prim/vertex counts, bbox, attribs."""
-    return _send_tool_command("get_geo_summary", {"node_path": f"/{node_path}"})
-
-@mcp.resource("houdini://usd/{node_path}/stage")
-def resource_usd_stage(node_path: str) -> str:
-    """USD stage info from a LOP node."""
-    return _send_tool_command("lop_stage_info", {"path": f"/{node_path}"})
-
-
-# ── MCP Prompts ──
-
-@mcp.prompt()
-def procedural_modeling_workflow() -> str:
-    """Guide for building a procedural SOP modeling chain in Houdini."""
-    return """You are helping build a procedural SOP modeling chain in Houdini.
-
-Steps:
-1. Use get_scene_info to understand the current scene
-2. Create a geometry container with create_node (type="geo", parent="/obj")
-3. Build a chain of SOP nodes using build_sop_chain or individual create_node calls
-4. Common SOP types: box, sphere, grid, tube, torus, circle, line
-5. Transform with: xform, blast, delete, group, attribwrangle
-6. Boolean with: boolean, intersect, subtract
-7. Refine with: subdivide, polyextrude, polybevel, remesh
-8. Use connect_nodes_batch to wire them together
-9. Set display/render flags with set_node_flags on the final node
-10. Use layout_children to organize the network
-11. Render with render_single_view to verify the result
-
-Always check for errors with find_error_nodes after building the chain."""
-
-
-@mcp.prompt()
-def usd_scene_assembly() -> str:
-    """Guide for assembling a USD scene with LOPs, materials, and lighting."""
-    return """You are helping assemble a USD scene using Houdini's LOPs (Solaris).
-
-Steps:
-1. Use get_scene_info to check the current scene
-2. Create a LOP network: create_node(type="lopnet", parent="/obj")
-3. Import geometry: create_lop_node with type="sopimport" or lop_import for USD files
-4. Add materials: create_material_workflow, then assign via set_usd_attribute
-5. Add lights: create_lop_node with light types (distantlight, domelight, spherelight)
-6. Set light parameters with modify_node
-7. Configure render settings: setup_render with camera_path and render_engine
-8. Use list_usd_prims to verify the stage hierarchy
-9. Use lop_stage_info for stage overview
-10. Render with render_single_view or start_render
-
-Check composition with get_usd_composition and variants with get_usd_variants."""
-
-
-@mcp.prompt()
-def simulation_setup() -> str:
-    """Guide for setting up Pyro/FLIP/RBD/Vellum simulations."""
-    return """You are helping set up a simulation in Houdini.
-
-Workflow templates (one-call setup):
-- Pyro: setup_pyro_sim(source_path, name)
-- RBD: setup_rbd_sim(source_path, name)
-- FLIP: setup_flip_sim(source_path, name)
-- Vellum: setup_vellum_sim(source_path, sim_type="cloth|hair|grain")
-
-Manual setup:
-1. Create source geometry (SOP level)
-2. Create DOP network: create_node(type="dopnet")
-3. Add appropriate solver nodes
-4. Configure solver parameters with set_parameters
-5. Set simulation frame range with set_frame_range
-6. Run simulation: step_simulation or use the playbar
-
-Monitoring:
-- get_simulation_info — memory usage, object count
-- list_dop_objects — all simulation objects
-- get_dop_field — specific simulation data
-- get_sim_memory_usage — track memory
-
-Cache results:
-- Use write_cache on file cache nodes
-- Check cache with get_cache_status
-- Clear with clear_cache when needed"""
-
-
-@mcp.prompt()
-def pdg_pipeline() -> str:
-    """Guide for building a PDG/TOPs pipeline."""
-    return """You are helping build a PDG (Procedural Dependency Graph) pipeline using TOPs.
-
-Steps:
-1. Create a TOP network: create_node(type="topnet", parent="/obj")
-2. Add TOP nodes for your pipeline stages
-3. Common TOP types: localscheduler, filepattern, ropfetch, pythonprocessor, waitforall
-4. Connect nodes to define dependencies with connect_nodes_batch
-5. Cook the network: pdg_cook(path)
-6. Monitor progress: pdg_status(path)
-7. Check work items: pdg_workitems(path, state="cooked|cooking|waiting|failed")
-8. If needed, dirty and re-cook: pdg_dirty(path) then pdg_cook(path)
-9. Cancel if needed: pdg_cancel(path)
-
-Tips:
-- Use batch operations for efficiency
-- Check errors with find_error_nodes
-- Use pdg_workitems with state filter to find failures"""
-
-
-@mcp.prompt()
-def hda_development() -> str:
-    """Guide for HDA (Houdini Digital Asset) development workflow."""
-    return """You are helping develop an HDA (Houdini Digital Asset).
-
-Creation:
-1. Build your node network in a subnet
-2. Create the HDA: hda_create(node_path, name, label, file_path)
-3. The node becomes an HDA instance
-
-Inspection:
-- hda_list — see all installed HDAs
-- hda_get — detailed info about an HDA type
-- get_hda_sections — list sections (code, help, etc.)
-- get_hda_section_content — read section content
-
-Modification:
-- set_hda_section_content — update section content (help text, scripts)
-- update_hda — sync HDA definition from node changes
-- reload_hda — reload from disk after external changes
-
-Management:
-- hda_install — install from .hda file
-- uninstall_hda — remove from session
-- Use get_node_info on HDA instances to see parameters
-
-Best practices:
-- Name with namespace: company::asset_name::1.0
-- Add help text in the Help section
-- Include OnCreated/OnLoaded scripts as needed
-- Test with create_node after any definition changes"""
-
-
-@mcp.prompt()
-def debug_scene() -> str:
-    """Systematic debugging checklist for Houdini scenes."""
-    return """You are helping debug a Houdini scene. Follow this systematic approach:
-
-1. Scene Overview:
-   - get_scene_info — basic scene info
-   - get_scene_summary — node counts by category
-
-2. Find Errors:
-   - find_error_nodes(root_path="/obj") — cook errors and warnings
-   - Check specific nodes with get_node_info
-
-3. Inspect Problem Nodes:
-   - explain_node(path) — see non-default parms, connections
-   - get_cook_chain(path) — trace dependency chain upstream
-   - get_parameter(node_path, parm_name) — check specific values
-
-4. Check Geometry:
-   - get_geo_summary — point/prim counts, bbox, attribs
-   - get_bounding_box — verify geometry is where expected
-   - get_points/get_prims — inspect actual data
-
-5. Check Connections:
-   - get_network_overview — see all nodes and connections
-   - list_children — verify node hierarchy
-
-6. Performance:
-   - get_sim_memory_usage — simulation memory
-   - list_caches — find cache nodes
-   - get_cache_status — check if caches are loaded
-
-7. Fix Issues:
-   - set_parameters — correct parameter values
-   - revert_parameter — reset to defaults
-   - connect_nodes_batch/disconnect_node_input — fix wiring
-
-8. Verify Fix:
-   - render_single_view — visual verification
-   - find_error_nodes — confirm errors resolved"""
 
 
 def main():

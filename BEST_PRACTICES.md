@@ -28,6 +28,7 @@ Hard-won lessons from real production use of the Houdini MCP. Organized by conte
 - [SOPs / File Cache](#sops--file-cache)
   - [parm.set() Silently Ignored When Expression Active](#parmset-silently-ignored-when-expression-active)
   - [hbatch render Only Works with ROPs, Not SOPs](#hbatch-render-only-works-with-rops-not-sops)
+  - [LOP Import Is Not a Skinned Body Cache](#lop-import-is-not-a-skinned-body-cache)
 - [DOPs / Vellum (Cloth & Hair)](#dops--vellum-cloth--hair)
   - [Detect explosions with the bounding box](#detect-explosions-with-the-bounding-box-not-the-error-stream)
   - [Convert PolySoup and NURBS first (camelCase)](#input-topology-must-be-poly--convert-polysoup-and-nurbs-first-camelcase)
@@ -55,11 +56,13 @@ Hard-won lessons from real production use of the Houdini MCP. Organized by conte
   - [flipbookSettings.resolution Silently Ignored Without useResolution](#flipbooksettingsresolution-is-silently-ignored-without-useresolutiontrue)
   - [Toggle Server Does Not Reload Plugin Code](#toggle-server-shelf-button-does-not-reload-plugin-code)
   - [Flipbook Off-Screen Viewport in Single Layout](#sceneviewerflipbookviewport-settings-silently-fails-for-off-screen-viewports-in-single-layout)
+  - [Viewport Screenshot viewwrite Target Names](#viewport-screenshot-viewwrite-target-names-need-context-segments)
 - [General MCP Usage](#general-mcp-usage)
   - [Connection Discipline](#connection-discipline)
   - [Node Inspection Caveats](#node-inspection-caveats)
   - [HDA Script Sync](#hda-script-sync)
   - [Diagnostics Workflow](#diagnostics-workflow)
+  - [Use uiready.py for GUI Auto-Start](#use-uireadypy-for-gui-auto-start)
 
 ---
 
@@ -438,6 +441,19 @@ node.parm("execute").pressButton()
 
 `pressButton()` is synchronous in hython — it blocks until all frames are written.
 
+### LOP Import Is Not a Skinned Body Cache
+
+> Houdini 21.0.631
+
+**Anti-pattern:** Used `lopimport::2.0` with `timesample=animated` and
+`importframe=$FF` to pull a Solaris USD character body mesh into SOPs, then
+exported that as the Marvelous Designer avatar Alembic. The mesh imported, but
+sampled point positions were identical at frames 1, 25, and 250.
+
+**Fix:** Import the USD skin with `kinefx::usdskinimport`, import bind/current
+poses with `kinefx::usdanimimport`, then run `kinefx::jointdeform`. Export the
+Joint Deform result with a `rop_alembic` SOP.
+
 ---
 
 ## DOPs / Vellum (Cloth & Hair)
@@ -717,7 +733,7 @@ Also: `outputToMPlay(False)` is required to avoid flashing the MPlay window, and
 
 The Toggle Server shelf button calls `stop()` / `start()` on the running `HoudiniMCPServer` instance. This re-binds the TCP listener but does **not** reload the `houdinimcp` Python modules — the running instance's class still references the imports captured at original load time. New commands added to the dispatcher after deploying updated handler files will return `Unknown command type: <name>` until Houdini is fully restarted.
 
-**Fix (clean):** Restart Houdini after `python scripts/install.py`. The plugin auto-imports via `pythonrc.py` and picks up the new code.
+**Fix (clean):** Restart Houdini after `python scripts/install.py`. The plugin auto-imports via `python3.11libs/uiready.py` and picks up the new code.
 
 **Fix (no-restart, runtime patch):** From an MCP `execute_houdini_code` call, `importlib.reload` the affected modules then monkey-patch the running server's class to inject the new handler:
 
@@ -745,6 +761,28 @@ The patch survives only until Houdini exits.
 A SceneViewer in `Single` layout still reports four `viewports()` (e.g. `right1`, `front1`, `top1`, `front2`), but only `curViewport()` is actually drawn — the others sit at a 1×1 / 101×101 stub. Calling `flipbook(off_screen_vp, settings)` produces no output file, and on some builds hangs Houdini's renderer until the bridge connection times out (WinError 10053).
 
 **Fix:** Before flipbook, gate on `viewer.viewportLayout() == hou.geometryViewportLayout.Single` and require the requested viewport to equal `viewer.curViewport()`. Multi-view layouts (Quad, Double*, Triple*) draw all `viewports()` and accept any of them.
+
+---
+
+### Viewport Screenshot `viewwrite` Target Names Need Context Segments
+
+> Houdini 21.0.700
+
+`viewwrite` does not reliably accept the short pane/viewport form produced by `SceneViewer.name()` and `curViewport().name()`. In the Build desktop, `Build.panetab1.persp1` failed with `No viewers found to write`, while `Build.panetab1.world.persp1` worked.
+
+For Solaris/LOP panes the equivalent form can include the Solaris context, for example `Solaris.panetab7.solaris.persp1`. Generic viewport names such as `persp1` are ambiguous when multiple SceneViewer panes exist.
+
+**Fix:** Build screenshot targets with likely context segments and try them in order:
+
+```text
+<desktop>.<pane>.<context>.<viewport>
+<desktop>.<pane>.<viewport>
+<pane>.<context>.<viewport>
+<pane>.<viewport>
+<viewport>
+```
+
+Use `world` for OBJ context and `solaris` for LOP context. Report candidate targets when resolution is ambiguous, and fall back to flipbook only if all `viewwrite` candidates fail.
 
 ---
 
@@ -791,3 +829,20 @@ When something looks wrong in a COP network, use `execute_houdini_code` to inspe
 4. **Compare pixel values** — `layer.allBufferElements()` + numpy at specific coordinates. Don't trust visual inspection alone.
 5. **Compare layer metadata** — `outputNames()`, `channelCount()`, `attributes()`, `typeInfo()` between working and broken paths.
 6. **Use a switch node for A/B testing** — insert a switch to isolate which part of the chain causes the issue.
+
+### Use uiready.py for GUI Auto-Start
+
+> Houdini 21.0.729
+
+**Anti-pattern:** Installed the GUI auto-start hook into `scripts/pythonrc.py`.
+Houdini 21 did not execute that file, so port 9876 was not listening after
+startup. During diagnosis, adding duplicate hooks plus repeated delayed timers
+caused several "Houdini MCP Server is already running" messages.
+
+**Diagnosis:** Manual shelf restart worked because it imported/started the plugin
+after the UI was already up. The real issue was the startup hook location, not the
+TCP server itself.
+
+**Fix:** Install a single hook at `$HOUDINI_USER_PREF_DIR/python3.11libs/uiready.py`
+containing only `import houdinimcp`. Do not also install `scripts/pythonrc.py` or
+`scripts/python/uiready.py` hooks.

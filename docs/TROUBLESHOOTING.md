@@ -98,11 +98,14 @@ This is normal. It means the MCP bridge closed its TCP connection (e.g., Claude 
 
 ### Plugin doesn't auto-start when Houdini opens
 
-The plugin auto-starts via two mechanisms: the installer adds `import houdinimcp` to `pythonrc.py` (runs at Houdini startup), and `houdinimcp/__init__.py` calls `initialize_plugin()` on import. If it's not loading:
+The plugin auto-starts when Houdini runs the UI-ready startup hook installed at
+`python3.11libs/uiready.py`. That hook imports `houdinimcp`, and
+`houdinimcp/__init__.py` calls `initialize_plugin()` on import. If it's not
+loading:
 
-1. Check that `pythonrc.py` contains the import line:
+1. Check that `uiready.py` contains the import line:
    ```bash
-   grep houdinimcp ~/houdiniX.Y/scripts/pythonrc.py
+   grep houdinimcp ~/houdiniX.Y/python3.11libs/uiready.py
    ```
    If missing, re-run `python scripts/install.py`.
 
@@ -116,6 +119,11 @@ The plugin auto-starts via two mechanisms: the installer adds `import houdinimcp
 4. Look for import errors in the Houdini console on startup. Common causes:
    - **Missing handler files** — if `handlers/` wasn't fully copied, you'll get `ImportError`. Re-run `python scripts/install.py`.
 
+5. Remove legacy duplicate startup hooks if they exist. Current installs should
+   use only `python3.11libs/uiready.py`; older experimental hooks under
+   `scripts/pythonrc.py` or `scripts/python/uiready.py` can cause duplicate
+   "already running" messages.
+
 **Still not working?** The MCP bridge can auto-launch a headless `hython` session as a fallback — see "Headless Mode" below.
 
 ### Plugin loads but server fails to start
@@ -126,6 +134,25 @@ Check the Houdini console for `Failed to start server:` messages. Usually means:
 - Socket permissions issue (extremely rare on modern systems)
 
 Fix: restart Houdini, or change the port via `HOUDINIMCP_PORT` environment variable.
+
+If a previous start attempt left a stopped server object in `hou.session`,
+older builds could incorrectly report that the server was already running.
+Reinstall the current plugin. `start_server()` now validates both
+`server.running` and the listening socket, and replaces stale instances.
+
+### Houdini listens on 9876 but Codex has no Houdini tools
+
+The Houdini TCP plugin and the Codex MCP bridge are separate layers. A working
+port 9876 does not register tools in Codex by itself.
+
+Run:
+
+```bash
+python scripts/install.py --houdini-version 21.0 --codex
+```
+
+Then restart Codex. Confirm that `~/.codex/config.toml` contains an
+`[mcp_servers.houdini]` section.
 
 ### After upgrading Houdini, the plugin stops working
 
@@ -318,11 +345,9 @@ PDG cook is non-blocking. After calling `pdg_cook`, poll `pdg_status` after a de
 
 When no Houdini GUI is running, the MCP bridge tries to find and launch `hython` automatically. If this isn't working:
 
-1. **Is hython findable?** The bridge checks `$HFS/bin/hython`, then `PATH`, then common install locations (`/opt/hfs*`, `C:\Program Files\Side Effects Software\*`). Verify:
+1. **Is Steam hython findable?** The bridge only checks Steam Houdini Indie. `$HFS` is accepted only when it points at the Steam install; otherwise the bridge probes `C:\Program Files (x86)\Steam\steamapps\common\Houdini Indie`. Set `HOUDINIMCP_STEAM_HOUDINI_DIR` if your Steam library is elsewhere. Verify:
    ```bash
-   which hython
-   # or
-   ls /opt/hfs*/bin/hython
+   dir "C:\Program Files (x86)\Steam\steamapps\common\Houdini Indie\bin\hython.exe"
    ```
 
 2. **Is headless disabled?** Check that `HOUDINIMCP_NO_HEADLESS` isn't set:
@@ -381,4 +406,4 @@ HOUDINIMCP_PORT=9877 uv run python houdini_mcp_server.py
 ### Linux
 
 - Houdini preferences are in `~/houdiniX.Y/`.
-- If Houdini was installed to `/opt/hfsX.Y`, you need to source `houdini_setup` before Houdini's Python environment is available. The plugin doesn't need this — it runs inside Houdini where `hou` is already available.
+- For Steam Houdini Indie in a non-default Steam library, set `HOUDINIMCP_STEAM_HOUDINI_DIR` to the `Houdini Indie` install root. The plugin itself does not need this when it is already running inside Houdini where `hou` is available.

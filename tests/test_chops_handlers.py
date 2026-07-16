@@ -11,7 +11,7 @@ if "hou" not in sys.modules:
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 
 from houdinimcp.handlers.chops import (
-    get_chop_data, create_chop_node, list_chop_channels, export_chop_to_parm,
+    get_chop_data, list_chop_channels, export_chop_to_parm,
 )
 
 
@@ -102,12 +102,6 @@ class TestChopHandlers:
         sys.modules["hou"].node = lambda p: chop if p == "/ch/chop1/wave1" else None
         result = list_chop_channels("/ch/chop1/wave1")
         assert result["count"] == 2
-
-    def test_create_chop_node(self):
-        parent = MockChopNode("chop1", "/ch/chop1")
-        sys.modules["hou"].node = lambda p: parent if p == "/ch/chop1" else None
-        result = create_chop_node("/ch/chop1", "wave", "mywave")
-        assert result["type"] == "wave"
 
     def test_export_chop_to_parm(self):
         chop = MockChopNode("wave1", "/ch/chop1/wave1")

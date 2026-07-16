@@ -50,19 +50,19 @@ from .handlers.pdg import pdg_cook, pdg_status, pdg_workitems, pdg_dirty, pdg_ca
 from .handlers.lop import (
     lop_stage_info, lop_prim_get, lop_prim_search, lop_layer_info, lop_import,
     list_usd_prims, get_usd_attribute, set_usd_attribute, get_usd_prim_stats,
-    get_last_modified_prims, create_lop_node, get_usd_composition,
+    get_last_modified_prims, get_usd_composition,
     get_usd_variants, inspect_usd_layer, list_lights,
 )
 from .handlers.workflow import (
     setup_pyro_sim, setup_rbd_sim, setup_flip_sim, setup_vellum_sim,
-    create_material_workflow, assign_material_workflow, build_sop_chain, setup_render,
+    build_sop_chain, setup_render,
 )
 from .handlers.cops import (
-    get_cop_info, get_cop_geometry, get_cop_layer, create_cop_node,
-    set_cop_flags, list_cop_node_types, get_cop_vdb,
+    get_cop_info, get_cop_geometry, get_cop_layer,
+    list_cop_node_types, get_cop_vdb,
 )
 from .handlers.chops import (
-    get_chop_data, create_chop_node, list_chop_channels, export_chop_to_parm,
+    get_chop_data, list_chop_channels, export_chop_to_parm,
 )
 from .handlers.takes import list_takes, get_current_take, set_current_take, create_take
 from .handlers.cache import list_caches, get_cache_status, clear_cache, write_cache
@@ -120,14 +120,13 @@ class HoudiniMCPServer:
         "set_viewport_camera", "set_viewport_display", "set_viewport_renderer",
         "frame_selection", "frame_all", "set_viewport_direction", "set_current_network",
         "set_render_settings", "create_render_node", "start_render",
-        "create_cop_node", "set_cop_flags",
-        "create_chop_node", "export_chop_to_parm",
+        "export_chop_to_parm",
         "set_current_take", "create_take",
         "clear_cache", "write_cache",
         "uninstall_hda", "reload_hda", "update_hda", "set_hda_section_content",
-        "set_usd_attribute", "create_lop_node",
+        "set_usd_attribute",
         "setup_pyro_sim", "setup_rbd_sim", "setup_flip_sim", "setup_vellum_sim",
-        "create_material_workflow", "assign_material_workflow", "build_sop_chain", "setup_render",
+        "build_sop_chain", "setup_render",
     }
 
     # Re-export for tests that reference it on the class
@@ -393,13 +392,10 @@ class HoudiniMCPServer:
             "get_cop_info": get_cop_info,
             "get_cop_geometry": get_cop_geometry,
             "get_cop_layer": get_cop_layer,
-            "create_cop_node": create_cop_node,
-            "set_cop_flags": set_cop_flags,
             "list_cop_node_types": list_cop_node_types,
             "get_cop_vdb": get_cop_vdb,
             # CHOPs
             "get_chop_data": get_chop_data,
-            "create_chop_node": create_chop_node,
             "list_chop_channels": list_chop_channels,
             "export_chop_to_parm": export_chop_to_parm,
             # Takes
@@ -425,7 +421,6 @@ class HoudiniMCPServer:
             "set_usd_attribute": set_usd_attribute,
             "get_usd_prim_stats": get_usd_prim_stats,
             "get_last_modified_prims": get_last_modified_prims,
-            "create_lop_node": create_lop_node,
             "get_usd_composition": get_usd_composition,
             "get_usd_variants": get_usd_variants,
             "inspect_usd_layer": inspect_usd_layer,
@@ -435,8 +430,6 @@ class HoudiniMCPServer:
             "setup_rbd_sim": setup_rbd_sim,
             "setup_flip_sim": setup_flip_sim,
             "setup_vellum_sim": setup_vellum_sim,
-            "create_material_workflow": create_material_workflow,
-            "assign_material_workflow": assign_material_workflow,
             "build_sop_chain": build_sop_chain,
             "setup_render": setup_render,
             # Undo / redo

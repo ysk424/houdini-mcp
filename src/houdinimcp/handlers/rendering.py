@@ -442,6 +442,188 @@ _SCREENSHOT_MAX_PIXEL_AREA = 8_000_000
 _SCREENSHOT_TESTED_DIM = 1920
 
 
+def _desktop_name():
+    try:
+        desktop = hou.ui.curDesktop()
+        if desktop is not None and hasattr(desktop, "name"):
+            return desktop.name()
+    except Exception:
+        pass
+    return None
+
+
+def _scene_viewers():
+    return [t for t in hou.ui.paneTabs()
+            if t.type() == hou.paneTabType.SceneViewer]
+
+
+def _viewport_target_paths(viewer, viewport):
+    """Return likely hscript/viewwrite viewport target names."""
+    pane = viewer.name()
+    vp = viewport.name()
+    targets = []
+    desktop = _desktop_name()
+    contexts = _viewport_context_names(viewer)
+    if desktop:
+        if "." in vp:
+            targets.append(f"{desktop}.{pane}.{vp}")
+        for context in contexts:
+            if not vp.startswith(f"{context}."):
+                targets.append(f"{desktop}.{pane}.{context}.{vp}")
+        targets.append(f"{desktop}.{pane}.{vp}")
+    if "." in vp:
+        targets.append(f"{pane}.{vp}")
+    for context in contexts:
+        if not vp.startswith(f"{context}."):
+            targets.append(f"{pane}.{context}.{vp}")
+    targets.append(f"{pane}.{vp}")
+    targets.append(vp)
+    return list(dict.fromkeys(targets))
+
+
+def _viewport_context_names(viewer):
+    names = []
+    try:
+        pwd = viewer.pwd()
+    except Exception:
+        pwd = None
+
+    if pwd is not None:
+        try:
+            if isinstance(pwd, hou.LopNode):
+                names.append("solaris")
+            elif isinstance(pwd, hou.ObjNode):
+                names.append("world")
+            else:
+                category = pwd.childTypeCategory()
+                if category == hou.lopNodeTypeCategory():
+                    names.append("solaris")
+                elif category == hou.objNodeTypeCategory():
+                    names.append("world")
+        except Exception:
+            pass
+
+    for fallback in ("world", "solaris"):
+        if fallback not in names:
+            names.append(fallback)
+    return names
+
+
+def _available_viewport_targets(scene_viewer_panes=None):
+    panes = scene_viewer_panes if scene_viewer_panes is not None else _scene_viewers()
+    out = []
+    for viewer in panes:
+        try:
+            cur = viewer.curViewport()
+            cur_name = cur.name() if cur is not None else None
+        except Exception:
+            cur_name = None
+        for viewport in viewer.viewports():
+            paths = _viewport_target_paths(viewer, viewport)
+            out.append({
+                "pane_tab_name": viewer.name(),
+                "viewport_name": viewport.name(),
+                "is_current": viewport.name() == cur_name,
+                "targets": paths,
+                "viewwrite_target": paths[0],
+            })
+    return out
+
+
+def _resolve_screenshot_viewer(scene_viewer_panes, viewport_name=None,
+                               pane_tab_name=None):
+    """Resolve screenshot target with deterministic errors and hscript path."""
+    if pane_tab_name is not None:
+        viewer = next((p for p in scene_viewer_panes
+                       if p.name() == pane_tab_name), None)
+        if viewer is None:
+            available = [p.name() for p in scene_viewer_panes]
+            return None, None, None, {
+                "status": "error",
+                "message": f"Pane tab '{pane_tab_name}' not found. "
+                           f"Available SceneViewer panes: {available}",
+                "origin": "screenshot_viewport",
+            }
+        viewers = [viewer]
+    else:
+        current = [p for p in scene_viewer_panes
+                   if hasattr(p, "isCurrentTab") and p.isCurrentTab()]
+        viewers = current or scene_viewer_panes
+        viewer = viewers[0]
+
+    if viewport_name is not None:
+        matches = []
+        for candidate_viewer in viewers:
+            for viewport in candidate_viewer.viewports():
+                targets = _viewport_target_paths(candidate_viewer, viewport)
+                if viewport_name == viewport.name() or viewport_name in targets:
+                    matches.append((candidate_viewer, viewport, targets[0]))
+
+        if not matches and pane_tab_name is None:
+            for candidate_viewer in scene_viewer_panes:
+                for viewport in candidate_viewer.viewports():
+                    targets = _viewport_target_paths(candidate_viewer, viewport)
+                    if viewport_name == viewport.name() or viewport_name in targets:
+                        matches.append((candidate_viewer, viewport, targets[0]))
+
+        if len(matches) > 1:
+            available = _available_viewport_targets(scene_viewer_panes)
+            return None, None, None, {
+                "status": "error",
+                "message": f"Viewport name '{viewport_name}' is ambiguous. "
+                           "Use pane_tab_name plus viewport_name, or pass an "
+                           "exact viewwrite target such as "
+                           "'Solaris.panetab7.solaris.persp1'. "
+                           f"Available targets: {available}",
+                "origin": "screenshot_viewport",
+            }
+        if not matches:
+            available = _available_viewport_targets(scene_viewer_panes)
+            return None, None, None, {
+                "status": "error",
+                "message": f"Viewport '{viewport_name}' not found. "
+                           f"Available targets: {available}",
+                "origin": "screenshot_viewport",
+            }
+        return matches[0][0], matches[0][1], matches[0][2], None
+
+    viewport = viewer.curViewport()
+    if viewport is None:
+        return None, None, None, {
+            "status": "error",
+            "message": "SceneViewer has no current viewport",
+            "origin": "screenshot_viewport",
+        }
+    return viewer, viewport, _viewport_target_paths(viewer, viewport)[0], None
+
+
+def _hscript_quote(value):
+    return '"' + str(value).replace("\\", "/").replace('"', '\\"') + '"'
+
+
+def _capture_viewwrite(target, output_path, frame, width, height):
+    command = (
+        f"viewwrite -f {int(frame)} {int(frame)} "
+        f"-r {int(width)} {int(height)} "
+        f"{target} {_hscript_quote(output_path)}"
+    )
+    out, err = hou.hscript(command)
+    if err:
+        raise RuntimeError(err)
+    return out
+
+
+def _capture_viewwrite_any(targets, output_path, frame, width, height):
+    errors = []
+    for target in targets:
+        try:
+            _capture_viewwrite(target, output_path, frame, width, height)
+            return target
+        except Exception as e:
+            errors.append(f"{target}: {e}")
+    raise RuntimeError("; ".join(errors))
+
+
 def screenshot_viewport(width=800, height=600, viewport_name=None,
                         pane_tab_name=None, frame=None):
     """Capture the current SceneViewer viewport as a PNG via OpenGL flipbook.
@@ -480,41 +662,20 @@ def screenshot_viewport(width=800, height=600, viewport_name=None,
                 "message": "No Houdini desktop available (running headless?)",
                 "origin": "screenshot_viewport"}
 
-    scene_viewer_panes = [t for t in hou.ui.paneTabs()
-                          if t.type() == hou.paneTabType.SceneViewer]
+    scene_viewer_panes = _scene_viewers()
     if not scene_viewer_panes:
         return {"status": "error",
                 "message": "No SceneViewer pane found. "
                            "Open a SceneViewer in the active desktop.",
                 "origin": "screenshot_viewport"}
 
-    if pane_tab_name is not None:
-        viewer = next((p for p in scene_viewer_panes
-                       if p.name() == pane_tab_name), None)
-        if viewer is None:
-            available = [p.name() for p in scene_viewer_panes]
-            return {"status": "error",
-                    "message": f"Pane tab '{pane_tab_name}' not found. "
-                               f"Available SceneViewer panes: {available}",
-                    "origin": "screenshot_viewport"}
-    else:
-        viewer = scene_viewer_panes[0]
-
-    if viewport_name is not None:
-        viewport = next((vp for vp in viewer.viewports()
-                         if vp.name() == viewport_name), None)
-        if viewport is None:
-            available = [vp.name() for vp in viewer.viewports()]
-            return {"status": "error",
-                    "message": f"Viewport '{viewport_name}' not found. "
-                               f"Available: {available}",
-                    "origin": "screenshot_viewport"}
-    else:
-        viewport = viewer.curViewport()
-        if viewport is None:
-            return {"status": "error",
-                    "message": "SceneViewer has no current viewport",
-                    "origin": "screenshot_viewport"}
+    viewer, viewport, viewwrite_target, error = _resolve_screenshot_viewer(
+        scene_viewer_panes,
+        viewport_name=viewport_name,
+        pane_tab_name=pane_tab_name,
+    )
+    if error is not None:
+        return error
 
     # In a Single layout only curViewport is actually drawn; the other
     # SceneViewer.viewports() entries exist as off-screen stubs and asking
@@ -543,20 +704,41 @@ def screenshot_viewport(width=800, height=600, viewport_name=None,
     tmpdir = Path(tempfile.mkdtemp(prefix="mcp_viewport_"))
     template = str(tmpdir / "shot.$F4.png").replace("\\", "/")
     expected_file = tmpdir / f"shot.{frame_used:04d}.png"
+    viewwrite_file = tmpdir / "shot.png"
+    capture_method = "viewwrite"
+    viewwrite_targets = _viewport_target_paths(viewer, viewport)
 
     try:
         try:
-            settings = viewer.flipbookSettings().stash()
-            settings.useResolution(True)
-            settings.resolution((width, height))
-            settings.outputToMPlay(False)
-            settings.output(template)
-            settings.frameRange((frame_used, frame_used))
-            viewer.flipbook(viewport, settings)
+            viewwrite_target = _capture_viewwrite_any(
+                viewwrite_targets,
+                str(viewwrite_file),
+                frame_used,
+                width,
+                height,
+            )
+            expected_file = viewwrite_file
         except Exception as e:
-            return {"status": "error",
-                    "message": f"Flipbook capture failed: {e}",
-                    "origin": "screenshot_viewport"}
+            warnings.append(f"viewwrite failed, fell back to flipbook: {e}")
+            capture_method = "flipbook"
+            try:
+                settings = viewer.flipbookSettings().stash()
+                settings.useResolution(True)
+                settings.resolution((width, height))
+                settings.outputToMPlay(False)
+                settings.output(template)
+                settings.frameRange((frame_used, frame_used))
+                viewer.flipbook(viewport, settings)
+            except Exception as flipbook_error:
+                return {"status": "error",
+                        "message": (f"Viewport capture failed. "
+                                    f"viewwrite targets {viewwrite_targets} "
+                                    f"failed with: {e}; flipbook failed with: "
+                                    f"{flipbook_error}"),
+                        "origin": "screenshot_viewport",
+                        "available_targets": _available_viewport_targets(
+                            scene_viewer_panes
+                        )}
 
         if not expected_file.exists():
             pngs = sorted(tmpdir.glob("*.png"))
@@ -584,6 +766,8 @@ def screenshot_viewport(width=800, height=600, viewport_name=None,
             "height_used": height,
             "viewport_name_used": viewport.name(),
             "pane_tab_name_used": viewer.name(),
+            "viewwrite_target_used": viewwrite_target,
+            "capture_method": capture_method,
             "frame_used": frame_used,
             "file_size_bytes": len(raw),
             "elapsed_seconds": round(elapsed, 3),

@@ -232,15 +232,14 @@ class TestCommandDispatcher:
             "frame_selection", "frame_all", "set_viewport_direction", "set_current_network",
             "set_render_settings", "create_render_node", "start_render",
             # Phase 5
-            "create_cop_node", "set_cop_flags",
-            "create_chop_node", "export_chop_to_parm",
+            "export_chop_to_parm",
             "set_current_take", "create_take",
             "clear_cache", "write_cache",
             "uninstall_hda", "reload_hda", "update_hda", "set_hda_section_content",
             # Phase 6
-            "set_usd_attribute", "create_lop_node",
+            "set_usd_attribute",
             "setup_pyro_sim", "setup_rbd_sim", "setup_flip_sim", "setup_vellum_sim",
-            "create_material_workflow", "assign_material_workflow", "build_sop_chain", "setup_render",
+            "build_sop_chain", "setup_render",
         }
         assert expected == HoudiniMCPServer.MUTATING_COMMANDS
 
@@ -485,18 +484,17 @@ class TestCommandDispatcher:
             "create_render_node", "start_render", "get_render_progress",
             # Phase 5 — COPs + CHOPs + Takes + Cache + HDA
             "get_cop_info", "get_cop_geometry", "get_cop_layer",
-            "create_cop_node", "set_cop_flags", "list_cop_node_types", "get_cop_vdb",
-            "get_chop_data", "create_chop_node", "list_chop_channels", "export_chop_to_parm",
+            "list_cop_node_types", "get_cop_vdb",
+            "get_chop_data", "list_chop_channels", "export_chop_to_parm",
             "list_takes", "get_current_take", "set_current_take", "create_take",
             "list_caches", "get_cache_status", "clear_cache", "write_cache",
             "uninstall_hda", "reload_hda", "update_hda",
             "get_hda_sections", "get_hda_section_content", "set_hda_section_content",
             # Phase 6 — USD + Workflow
             "list_usd_prims", "get_usd_attribute", "set_usd_attribute",
-            "get_usd_prim_stats", "get_last_modified_prims", "create_lop_node",
+            "get_usd_prim_stats", "get_last_modified_prims",
             "get_usd_composition", "get_usd_variants", "inspect_usd_layer", "list_lights",
             "setup_pyro_sim", "setup_rbd_sim", "setup_flip_sim", "setup_vellum_sim",
-            "create_material_workflow", "assign_material_workflow",
             "build_sop_chain", "setup_render",
             # Undo / redo
             "undo", "redo", "get_undo_history",

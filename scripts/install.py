@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 """
-install.py — Set up HoudiniMCP for automatic loading in Houdini.
+install.py — Set up HoudiniMCP for automatic loading in Houdini 22.
+
+The plugin runs directly from this repository: instead of copying the Python
+sources into the Houdini prefs directory, the generated package puts
+<repo>/src on Houdini's PYTHONPATH. Edits to the working tree take effect on
+the next Houdini restart, with no reinstall step.
 
 This script:
-1. Detects the Houdini user preferences directory
-2. Copies the plugin files to the scripts/python/houdinimcp/ directory
-3. Creates a packages JSON file so Houdini auto-loads the plugin at startup
+1. Detects the Houdini 22 user preferences directory
+2. Writes a packages JSON pointing PYTHONPATH at <repo>/src
+3. Copies the panel/shelf definitions (Houdini only scans those under prefs)
+4. Adds the UI-ready auto-start hook
 
 Usage:
-    python install.py                    # Auto-detect Houdini version
-    python install.py --houdini-version 20.5  # Specify Houdini version
-    python install.py --prefs-dir /path/to/houdiniX.Y  # Explicit prefs directory
+    python install.py                    # Install for Houdini 22
+    python install.py --prefs-dir /path/to/houdini22.0  # Explicit prefs directory
     python install.py --claude-code      # Also auto-allow Houdini MCP tools in Claude Code
+    python install.py --codex            # Also register Houdini MCP in Codex
     python install.py --dry-run          # Show what would be done without doing it
 """
 import os
@@ -20,17 +26,14 @@ import shutil
 import json
 import argparse
 import platform
-import glob
+import re
 
 
-PLUGIN_FILES = [
-    "src/houdinimcp/__init__.py",
-    "src/houdinimcp/server.py",
-    "src/houdinimcp/HoudiniMCPRender.py",
-    "src/houdinimcp/claude_terminal.py",
-    "src/houdinimcp/event_collector.py",
-]
-HANDLER_DIR = "src/houdinimcp/handlers"
+# Houdini 22 only. Its embedded interpreter is Python 3.13, which fixes the
+# prefs subdirectory Houdini scans for startup scripts.
+HOUDINI_VERSION = "22.0"
+PYTHON_LIBS_DIR = "python3.13libs"
+
 PANEL_FILES = [
     "src/houdinimcp/ClaudeTerminal.pypanel",
 ]
@@ -40,83 +43,41 @@ SHELF_FILES = [
 PACKAGE_NAME = "houdinimcp"
 
 
-def find_houdini_prefs(houdini_version=None):
-    """Find the Houdini user preferences directory."""
+def find_houdini_prefs():
+    """Return the Houdini 22 user preferences directory."""
     system = platform.system()
     home = os.path.expanduser("~")
 
     if system == "Windows":
-        base = os.path.join(home, "Documents")
-    elif system == "Darwin":
-        base = os.path.join(home, "Library", "Preferences", "houdini")
-    else:  # Linux
-        base = home
-
-    if houdini_version:
-        if system == "Windows":
-            candidate = os.path.join(base, f"houdini{houdini_version}")
-        elif system == "Darwin":
-            candidate = os.path.join(base, houdini_version)
-        else:
-            candidate = os.path.join(base, f"houdini{houdini_version}")
-        if os.path.isdir(candidate):
-            return candidate
-        # Directory doesn't exist yet — still return it so we can create it
-        return candidate
-
-    # Auto-detect: find the newest houdini prefs directory
+        return os.path.join(home, "Documents", f"houdini{HOUDINI_VERSION}")
     if system == "Darwin":
-        search_base = base
-        pattern = "[0-9]*.[0-9]*"
-    else:
-        search_base = base
-        pattern = "houdini[0-9]*.[0-9]*"
-
-    candidates = sorted(glob.glob(os.path.join(search_base, pattern)), reverse=True)
-    if candidates:
-        return candidates[0]
-
-    return None
+        return os.path.join(home, "Library", "Preferences", "houdini", HOUDINI_VERSION)
+    return os.path.join(home, f"houdini{HOUDINI_VERSION}")
 
 
 def install(prefs_dir, source_dir, dry_run=False):
-    """Install plugin files and create the packages JSON."""
-    plugin_dest = os.path.join(prefs_dir, "scripts", "python", PACKAGE_NAME)
+    """Point Houdini at the plugin in this repo and create the packages JSON."""
+    python_src = os.path.join(source_dir, "src")
     packages_dir = os.path.join(prefs_dir, "packages")
 
     print(f"Source directory:  {source_dir}")
-    print(f"Plugin install to: {plugin_dest}")
+    print(f"Plugin runs from:  {python_src} (no copy)")
     print(f"Package config:    {os.path.join(packages_dir, f'{PACKAGE_NAME}.json')}")
     print()
 
-    # Copy plugin files
-    if not dry_run:
-        os.makedirs(plugin_dest, exist_ok=True)
+    if not os.path.isdir(os.path.join(python_src, PACKAGE_NAME)):
+        print(f"Error: {os.path.join(python_src, PACKAGE_NAME)} not found.", file=sys.stderr)
+        sys.exit(1)
 
-    for filepath in PLUGIN_FILES:
-        src = os.path.join(source_dir, filepath)
-        dst = os.path.join(plugin_dest, os.path.basename(filepath))
-        if not os.path.isfile(src):
-            print(f"  SKIP {filepath} (not found in source)")
-            continue
+    # An older install copied the plugin into the prefs tree. That copy sits on
+    # PYTHONPATH too and would shadow this repo, so retire it.
+    stale_copy = os.path.join(prefs_dir, "scripts", "python", PACKAGE_NAME)
+    if os.path.isdir(stale_copy):
         if dry_run:
-            print(f"  COPY {src} -> {dst}")
+            print(f"  REMOVE stale copied plugin {stale_copy}")
         else:
-            shutil.copy2(src, dst)
-            print(f"  Copied {os.path.basename(filepath)}")
-
-    # Copy handlers/ directory
-    handlers_src = os.path.join(source_dir, HANDLER_DIR)
-    handlers_dest = os.path.join(plugin_dest, "handlers")
-    if os.path.isdir(handlers_src):
-        if dry_run:
-            print(f"  COPY {handlers_src}/ -> {handlers_dest}/")
-        else:
-            if os.path.exists(handlers_dest):
-                shutil.rmtree(handlers_dest)
-            shutil.copytree(handlers_src, handlers_dest)
-            handler_count = sum(1 for f in os.listdir(handlers_dest) if f.endswith('.py'))
-            print(f"  Copied handlers/ ({handler_count} modules)")
+            shutil.rmtree(stale_copy)
+            print(f"  Removed stale copied plugin {stale_copy}")
 
     # Copy .pypanel files to Houdini's python_panels directory
     panels_dest = os.path.join(prefs_dir, "python_panels")
@@ -150,17 +111,18 @@ def install(prefs_dir, source_dir, dry_run=False):
             shutil.copy2(src, dst)
             print(f"  Copied {os.path.basename(filepath)} -> toolbar/")
 
-    # Create packages JSON
-    # Use forward slashes for cross-platform Houdini compatibility
-    python_scripts_dir = os.path.join(prefs_dir, "scripts", "python").replace("\\", "/")
+    # Create packages JSON.
+    # Use forward slashes for cross-platform Houdini compatibility.
+    # No "path" entry: that would put the repo root on HOUDINI_PATH and let
+    # Houdini scan its scripts/ and toolbar/ as if they were prefs dirs. Only
+    # PYTHONPATH is needed to make `import houdinimcp` resolve to the repo.
     package_json = {
-        "path": plugin_dest.replace("\\", "/"),
         "load_package_once": True,
         "version": "0.1",
         "env": [
             {
                 "PYTHONPATH": {
-                    "value": python_scripts_dir,
+                    "value": python_src.replace("\\", "/"),
                     "method": "append",
                 }
             }
@@ -186,7 +148,9 @@ def install(prefs_dir, source_dir, dry_run=False):
             }
         }
     }
-    mcp_config_path = os.path.join(plugin_dest, "mcp.json")
+    # claude_terminal.py looks for mcp.json next to itself, which now means
+    # inside the repo. It holds machine-specific paths, so it stays untracked.
+    mcp_config_path = os.path.join(python_src, PACKAGE_NAME, "mcp.json")
     if dry_run:
         print(f"  WRITE {mcp_config_path}")
     else:
@@ -195,54 +159,83 @@ def install(prefs_dir, source_dir, dry_run=False):
             f.write("\n")
         print(f"  Created MCP config: {mcp_config_path}")
 
-    # Create/update pythonrc.py so Houdini auto-imports the plugin at startup
-    scripts_dir = os.path.join(prefs_dir, "scripts")
-    pythonrc_path = os.path.join(scripts_dir, "pythonrc.py")
-    import_line = "import houdinimcp  # Auto-start HoudiniMCP server"
+    # Create/update uiready.py so Houdini auto-imports the plugin after the GUI is ready.
+    # pythonrc.py is too early for the QTimer-backed GUI server, and it is discovered from
+    # pythonX.Ylibs/pythonrc.py, not scripts/pythonrc.py.
+    startup_code = "import houdinimcp  # Auto-start HoudiniMCP server\n"
+    startup_targets = [
+        os.path.join(prefs_dir, PYTHON_LIBS_DIR, "uiready.py"),
+    ]
+    legacy_startup_paths = [
+        os.path.join(prefs_dir, "scripts", "pythonrc.py"),
+        os.path.join(prefs_dir, "scripts", "python", "uiready.py"),
+    ]
+    for legacy_path in legacy_startup_paths:
+        if not os.path.isfile(legacy_path):
+            continue
+        with open(legacy_path, encoding="utf-8") as f:
+            legacy_content = f.read()
+        if "import houdinimcp" not in legacy_content:
+            continue
+        cleaned_lines = [
+            line for line in legacy_content.splitlines()
+            if "import houdinimcp" not in line
+            and "HOUDINIMCP_STARTUP_LOG" not in line
+        ]
+        cleaned = "\n".join(cleaned_lines).strip()
+        if dry_run:
+            print(f"  CLEAN legacy HoudiniMCP auto-start from {legacy_path}")
+        elif cleaned:
+            with open(legacy_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(cleaned + "\n")
+            print(f"  Removed legacy HoudiniMCP auto-start from {legacy_path}")
+        else:
+            os.remove(legacy_path)
+            print(f"  Removed legacy HoudiniMCP auto-start file {legacy_path}")
+    for startup_path in startup_targets:
+        existing_content = ""
+        if os.path.isfile(startup_path):
+            with open(startup_path, encoding="utf-8") as f:
+                existing_content = f.read()
 
-    existing_content = ""
-    if os.path.isfile(pythonrc_path):
-        with open(pythonrc_path) as f:
-            existing_content = f.read()
+        if "import houdinimcp" in existing_content:
+            print(f"  {startup_path} already imports houdinimcp")
+        elif dry_run:
+            print(f"  APPEND auto-start import to {startup_path}")
+        else:
+            os.makedirs(os.path.dirname(startup_path), exist_ok=True)
+            with open(startup_path, "a", encoding="utf-8", newline="\n") as f:
+                if existing_content and not existing_content.endswith("\n"):
+                    f.write("\n")
+                f.write(startup_code)
+            print(f"  Added UI-ready auto-start to {startup_path}")
 
-    if "import houdinimcp" in existing_content:
-        print(f"  pythonrc.py already imports houdinimcp")
-    elif dry_run:
-        print(f"  APPEND '{import_line}' to {pythonrc_path}")
-    else:
-        os.makedirs(scripts_dir, exist_ok=True)
-        with open(pythonrc_path, "a") as f:
-            if existing_content and not existing_content.endswith("\n"):
-                f.write("\n")
-            f.write(import_line + "\n")
-        print(f"  Added auto-start to {pythonrc_path}")
-
-    print("\nDone!" if not dry_run else "\nDry run complete — no files were changed.")
+    print("\nDone!" if not dry_run else "\nDry run complete - no files were changed.")
     if not dry_run:
         print("Restart Houdini for changes to take effect.")
         print("The MCP server will auto-start when Houdini loads the plugin.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Install HoudiniMCP plugin for auto-loading")
-    parser.add_argument("--houdini-version", default=None, help="Houdini version (e.g. 20.5)")
+    parser = argparse.ArgumentParser(
+        description=f"Install HoudiniMCP plugin for auto-loading in Houdini {HOUDINI_VERSION}")
     parser.add_argument("--prefs-dir", default=None, help="Explicit Houdini preferences directory")
     parser.add_argument("--claude-code", action="store_true",
                         help="Auto-allow Houdini MCP tools in Claude Code (no per-tool prompts)")
+    parser.add_argument("--codex", action="store_true",
+                        help="Register the Houdini MCP bridge in Codex config.toml")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done without doing it")
     args = parser.parse_args()
 
     # scripts/ is one level below the repo root
     source_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    if args.prefs_dir:
-        prefs_dir = args.prefs_dir
-    else:
-        prefs_dir = find_houdini_prefs(args.houdini_version)
+    prefs_dir = args.prefs_dir or find_houdini_prefs()
 
-    if not prefs_dir:
-        print("Error: Could not find Houdini preferences directory.", file=sys.stderr)
-        print("Use --houdini-version or --prefs-dir to specify it.", file=sys.stderr)
+    if not os.path.isdir(prefs_dir):
+        print(f"Error: Houdini {HOUDINI_VERSION} preferences directory not found: {prefs_dir}",
+              file=sys.stderr)
+        print("Launch Houdini once to create it, or pass --prefs-dir.", file=sys.stderr)
         sys.exit(1)
 
     print(f"Houdini prefs directory: {prefs_dir}\n")
@@ -250,6 +243,8 @@ def main():
 
     if args.claude_code:
         configure_claude_code(args.dry_run)
+    if args.codex:
+        configure_codex(source_dir, args.dry_run)
 
 
 def configure_claude_code(dry_run=False):
@@ -294,6 +289,55 @@ def configure_claude_code(dry_run=False):
     for permission in added:
         print(f"  Claude Code: Added '{permission}' to {settings_file}")
     print("Houdini MCP tools and mplay will no longer require per-call approval.")
+
+
+def configure_codex(source_dir, dry_run=False):
+    """Register the bridge in Codex's TOML configuration."""
+    config_dir = os.path.join(os.path.expanduser("~"), ".codex")
+    config_file = os.path.join(config_dir, "config.toml")
+    bridge_script = os.path.join(source_dir, "houdini_mcp_server.py")
+    if platform.system() == "Windows":
+        venv_python = os.path.join(source_dir, ".venv", "Scripts", "python.exe")
+    else:
+        venv_python = os.path.join(source_dir, ".venv", "bin", "python")
+    bridge_python = venv_python if os.path.isfile(venv_python) else sys.executable
+
+    def toml_literal(value):
+        return "'" + value.replace("'", "''") + "'"
+
+    block = (
+        "[mcp_servers.houdini]\n"
+        f"command = {toml_literal(bridge_python)}\n"
+        f"args = [{json.dumps(bridge_script)}]\n"
+    )
+
+    existing = ""
+    if os.path.isfile(config_file):
+        with open(config_file, encoding="utf-8") as f:
+            existing = f.read()
+
+    section_pattern = re.compile(
+        r"(?ms)^\[mcp_servers\.houdini\]\n.*?(?=^\[|\Z)"
+    )
+    if section_pattern.search(existing):
+        updated = section_pattern.sub(lambda _match: block + "\n", existing, count=1)
+    else:
+        separator = "" if not existing or existing.endswith("\n\n") else "\n"
+        updated = existing + separator + block
+
+    if updated == existing:
+        print(f"\nCodex: Houdini MCP is already registered in {config_file}")
+        return
+    if dry_run:
+        print(f"\n  WOULD REGISTER Houdini MCP in {config_file}:")
+        print(block)
+        return
+
+    os.makedirs(config_dir, exist_ok=True)
+    with open(config_file, "w", encoding="utf-8", newline="\n") as f:
+        f.write(updated)
+    print(f"\nCodex: Registered Houdini MCP in {config_file}")
+    print("Restart Codex to load the Houdini MCP tools.")
 
 
 if __name__ == "__main__":
